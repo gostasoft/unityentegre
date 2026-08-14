@@ -33,3 +33,8 @@ Desktop.ini
 
 # Unity crash reports
 sysinfo.txt
+
+# Rebuilt by Tools > Metin2 > Build All Maps
+/Assets/Metin2/Generated/
+/Assets/Metin2/Raw/
+/Metin2,5/Extracted/
