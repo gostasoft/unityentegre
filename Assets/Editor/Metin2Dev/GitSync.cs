@@ -1,8 +1,10 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
+using Process = System.Diagnostics.Process;
+using ProcessStartInfo = System.Diagnostics.ProcessStartInfo;
 
 namespace Metin2Dev
 {
