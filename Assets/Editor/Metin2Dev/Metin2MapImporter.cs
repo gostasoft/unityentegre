@@ -146,6 +146,8 @@ namespace Metin2Dev
             foreach (string area in SafeFiles(map.Root).Where(p => Path.GetFileName(p).StartsWith("AreaData", StringComparison.OrdinalIgnoreCase)))
                 PlaceArea(area, properties, models, buildings, trees, rocks, props, report);
 
+            SetupPreviewCamera(root);
+
             EditorSceneManager.MarkSceneDirty(scene); EditorSceneManager.SaveScene(scene, Output + "/Scenes/" + map.Name + ".unity"); report.BuiltMaps++;
         }
 
@@ -339,6 +341,34 @@ namespace Metin2Dev
             GameObject environment = Child(root, "Environment"), lightObject = Child(environment, "Directional Light"); lightObject.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
             Light light = lightObject.AddComponent<Light>(); light.type = LightType.Directional; light.intensity = 1.1f; light.shadows = LightShadows.Soft; RenderSettings.ambientMode = AmbientMode.Trilight;
         }
+
+        static void SetupPreviewCamera(GameObject root)
+        {
+            Bounds bounds = new Bounds(Vector3.zero, Vector3.zero); bool hasBounds = false;
+            foreach (Terrain terrain in root.GetComponentsInChildren<Terrain>(true))
+            {
+                Bounds terrainBounds = terrain.terrainData.bounds; terrainBounds.center += terrain.transform.position;
+                if (hasBounds) bounds.Encapsulate(terrainBounds); else { bounds = terrainBounds; hasBounds = true; }
+            }
+            if (!hasBounds)
+            {
+                foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (hasBounds) bounds.Encapsulate(renderer.bounds); else { bounds = renderer.bounds; hasBounds = true; }
+                }
+            }
+            if (!hasBounds) bounds = new Bounds(Vector3.zero, new Vector3(256f, 100f, 256f));
+
+            float span = Mathf.Max(256f, bounds.size.x, bounds.size.z);
+            Vector3 target = bounds.center;
+            GameObject environment = root.transform.Find("Environment")?.gameObject ?? root;
+            GameObject cameraObject = Child(environment, "Main Camera"); cameraObject.tag = "MainCamera";
+            cameraObject.transform.position = target + new Vector3(0f, span * 0.9f, -span * 0.7f);
+            cameraObject.transform.LookAt(target);
+            Camera camera = cameraObject.AddComponent<Camera>(); camera.fieldOfView = 60f; camera.nearClipPlane = 0.3f; camera.farClipPlane = Mathf.Max(5000f, span * 5f);
+            cameraObject.AddComponent<AudioListener>();
+        }
+
         static GameObject Child(GameObject parent, string name) { GameObject child = new GameObject(name); child.transform.SetParent(parent.transform, false); return child; }
         static Vector2Int ParseTile(string name) { return name.Length == 6 && name.All(char.IsDigit) ? new Vector2Int(int.Parse(name.Substring(0, 3)), int.Parse(name.Substring(3, 3))) : Vector2Int.zero; }
         static int Square(int value) { int size = Mathf.RoundToInt(Mathf.Sqrt(value)); return size * size == value ? size : 0; }
