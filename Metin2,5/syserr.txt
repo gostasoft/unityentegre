@@ -1,0 +1,87 @@
+0702 17:38:15421 :: CPythonItem::LoadItemTable: invalid item_proto[locale/tr/item_proto] STRIDE[156] != sizeof(SItemTable)
+0702 17:38:15421 :: LoadLocaleData - LoadItemProto(locale/tr/item_proto) Error
+0702 17:38:16175 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/recuperation/autodrugup_red.mse) Error
+0702 17:38:16175 :: CInstanceBase::RegisterEffect(eEftType=267, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/recuperation/autodrugup_red.mse, isCache=1) - Error
+0702 17:38:16175 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/recuperation/autodrugup_blue.mse) Error
+0702 17:38:16176 :: CInstanceBase::RegisterEffect(eEftType=268, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/recuperation/autodrugup_blue.mse, isCache=1) - Error
+0702 17:38:16176 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item1.mse) Error
+0702 17:38:16176 :: CInstanceBase::RegisterEffect(eEftType=269, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item1.mse, isCache=1) - Error
+0702 17:38:16176 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item2.mse) Error
+0702 17:38:16176 :: CInstanceBase::RegisterEffect(eEftType=270, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item2.mse, isCache=1) - Error
+0702 17:38:16176 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item3.mse) Error
+0702 17:38:16176 :: CInstanceBase::RegisterEffect(eEftType=271, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item3.mse, isCache=1) - Error
+0702 17:38:16176 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item4.mse) Error
+0702 17:38:16176 :: CInstanceBase::RegisterEffect(eEftType=272, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item4.mse, isCache=1) - Error
+0702 17:38:16273 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/hit/percent_damage1.mse) Error
+0702 17:38:16273 :: CInstanceBase::RegisterEffect(eEftType=264, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/hit/percent_damage1.mse, isCache=1) - Error
+0702 17:38:16273 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/hit/percent_damage2.mse) Error
+0702 17:38:16273 :: CInstanceBase::RegisterEffect(eEftType=265, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/hit/percent_damage2.mse, isCache=1) - Error
+0702 17:38:16273 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/hit/percent_damage3.mse) Error
+0702 17:38:16273 :: CInstanceBase::RegisterEffect(eEftType=266, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/hit/percent_damage3.mse, isCache=1) - Error
+0702 17:38:23429 :: GRANNY: r:/granny/rt/granny_file_info.cpp(145): File has run-time type tag of 0x8000000f, which doesn't match this version of Granny (0x80000010).  Automatic conversion will be attempted.
+0702 17:38:23969 :: CEffectManager::RegisterEffect - LoadScript(D:/ymir work/pc/common/effect/armor/armor-4-2-1.mse) Error
+0702 17:38:23969 :: CInstanceBase::RegisterEffect(eEftType=248, c_szEftAttachBone=Bip01, c_szEftName=D:/ymir work/pc/common/effect/armor/armor-4-2-1.mse, isCache=0) - Error
+0702 17:38:23969 :: CEffectManager::RegisterEffect - LoadScript(D:/ymir work/pc/common/effect/armor/armor-4-2-2.mse) Error
+0702 17:38:23969 :: CInstanceBase::RegisterEffect(eEftType=249, c_szEftAttachBone=Bip01, c_szEftName=D:/ymir work/pc/common/effect/armor/armor-4-2-2.mse, isCache=0) - Error
+0702 17:38:24020 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item1.mse) Error
+0702 17:38:24020 :: CInstanceBase::RegisterEffect(eEftType=104, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item1.mse, isCache=0) - Error
+0702 17:38:24020 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item2.mse) Error
+0702 17:38:24020 :: CInstanceBase::RegisterEffect(eEftType=105, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item2.mse, isCache=0) - Error
+0702 17:38:24020 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item3.mse) Error
+0702 17:38:24020 :: CInstanceBase::RegisterEffect(eEftType=106, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item3.mse, isCache=0) - Error
+0702 17:38:24020 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item4.mse) Error
+0702 17:38:24020 :: CInstanceBase::RegisterEffect(eEftType=107, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item4.mse, isCache=0) - Error
+0702 17:38:24020 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item5.mse) Error
+0702 17:38:24020 :: CInstanceBase::RegisterEffect(eEftType=108, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item5.mse, isCache=0) - Error
+0702 17:38:24020 :: CEffectManager::RegisterEffect - LoadScript(d:/ymir work/effect/etc/buff/buff_item6.mse) Error
+0702 17:38:24020 :: CInstanceBase::RegisterEffect(eEftType=109, c_szEftAttachBone=, c_szEftName=d:/ymir work/effect/etc/buff/buff_item6.mse, isCache=0) - Error
+0702 17:38:24289 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc/warrior/action/dance_6.msa) ERROR
+0702 17:38:24291 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc/warrior/action/dance_6.msa) ERROR
+0702 17:38:24716 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc2/warrior/action/dance_6.msa) ERROR
+0702 17:38:24717 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc2/warrior/action/dance_6.msa) ERROR
+0702 17:38:25223 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc/assassin/action/dance_6.msa) ERROR
+0702 17:38:25227 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc/assassin/action/dance_6.msa) ERROR
+0702 17:38:25653 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc2/assassin/action/dance_6.msa) ERROR
+0702 17:38:25655 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc2/assassin/action/dance_6.msa) ERROR
+0702 17:38:26319 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc/sura/action/dance_6.msa) ERROR
+0702 17:38:26323 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc/sura/action/dance_6.msa) ERROR
+0702 17:38:26657 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc2/sura/action/dance_6.msa) ERROR
+0702 17:38:26659 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc2/sura/action/dance_6.msa) ERROR
+0702 17:38:26915 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc/shaman/action/dance_6.msa) ERROR
+0702 17:38:26917 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc/shaman/action/dance_6.msa) ERROR
+0702 17:38:27541 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc2/shaman/action/dance_6.msa) ERROR
+0702 17:38:27542 :: CRaceData::RegisterMotionData - LoadMotionData(c_szFileName=d:/ymir work/pc2/shaman/action/dance_6.msa) ERROR
+0702 17:38:28178 :: LZObject: not a valid data
+0702 17:38:28178 :: Failed to decompress : d:/ymir work/ui/game/taskbar/mall_button_01.tga
+0702 17:38:28178 :: LZObject: not a valid data
+0702 17:38:28178 :: Failed to decompress : d:/ymir work/ui/game/taskbar/mall_button_02.tga
+0702 17:38:28178 :: LZObject: not a valid data
+0702 17:38:28178 :: Failed to decompress : d:/ymir work/ui/game/taskbar/mall_button_03.tga
+0702 17:38:28276 :: Traceback (most recent call last):
+
+0702 17:38:28276 ::   File "networkModule.py", line 233, in SetGamePhase
+
+0702 17:38:28276 ::   File "game.py", line 102, in __init__
+
+0702 17:38:28276 ::   File "interfaceModule.py", line 263, in MakeInterface
+
+0702 17:38:28277 ::   File "interfaceModule.py", line 122, in __MakeTaskBar
+
+0702 17:38:28277 ::   File "uiTaskBar.py", line 393, in LoadWindow
+
+0702 17:38:28277 ::   File "ui.py", line 2701, in GetChild
+
+0702 17:38:28277 :: KeyError
+0702 17:38:28277 :: : 
+0702 17:38:28277 :: ChatButton
+0702 17:38:28277 :: 
+
+0702 17:39:48963 :: Traceback (most recent call last):
+
+0702 17:39:48963 ::   File "game.py", line 1610, in BINARY_SetTipMessage
+
+0702 17:39:48963 :: AttributeError
+0702 17:39:48963 :: : 
+0702 17:39:48963 :: 'NoneType' object has no attribute 'SetTip'
+0702 17:39:48963 :: 
+
