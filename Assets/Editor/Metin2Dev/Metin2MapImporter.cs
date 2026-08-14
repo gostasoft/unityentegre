@@ -19,6 +19,7 @@ namespace Metin2Dev
         const string Output = "Assets/Metin2/Generated";
         const string Raw = "Assets/Metin2/Raw";
         const float MetinUnitsPerUnityUnit = 100f;
+        const float TerrainTextureTileSize = 10f;
         static readonly string[] ModelExtensions = { ".fbx", ".obj", ".dae" };
         static readonly string[] ImageExtensions = { ".png", ".dds", ".tga", ".jpg", ".jpeg", ".bmp" };
         static readonly Dictionary<string, string> ImportedModels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -195,17 +196,15 @@ namespace Metin2Dev
                 string textureAssetPath = CopyAsset(source, Raw + "/Textures");
                 Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(textureAssetPath);
                 if (texture == null) { report.Missing.Add(map.Name + " | TextureImport | " + source); continue; }
-                // Metin2 stores repeats over a 16 x 200 cm patch. Unity stores the
-                // reciprocal value: the physical metre size of one texture repeat.
-                float patchMetres = 16f * settings.CellScale / MetinUnitsPerUnityUnit;
-                Vector2 tileSize = new Vector2(
-                    patchMetres / Mathf.Max(0.0001f, Mathf.Abs(entry.UScale)),
-                    patchMetres / Mathf.Max(0.0001f, Mathf.Abs(entry.VScale)));
                 TerrainLayer layer = new TerrainLayer
                 {
                     diffuseTexture = texture,
-                    tileSize = tileSize,
-                    tileOffset = new Vector2(entry.UOffset * tileSize.x, -entry.VOffset * tileSize.y)
+                    // Keep every generated layer consistent with the Unity terrain
+                    // authoring value used by the project. Source splat masks still
+                    // decide where each texture is painted; only its visual repeat
+                    // size is normalized here.
+                    tileSize = new Vector2(TerrainTextureTileSize, TerrainTextureTileSize),
+                    tileOffset = Vector2.zero
                 };
                 string layerPath = Output + "/Maps/" + map.Name + "/Layer_" + entry.Index.ToString("D3") + ".terrainlayer";
                 if (AssetDatabase.LoadAssetAtPath<TerrainLayer>(layerPath) != null) AssetDatabase.DeleteAsset(layerPath);
