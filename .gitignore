@@ -36,5 +36,7 @@ sysinfo.txt
 
 # Rebuilt by Tools > Metin2 > Build All Maps
 /Assets/Metin2/Generated/
+/Assets/Metin2/Generated.meta
 /Assets/Metin2/Raw/
+/Assets/Metin2/Raw.meta
 /Metin2,5/Extracted/

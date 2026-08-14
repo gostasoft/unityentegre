@@ -258,7 +258,6 @@ namespace Metin2Dev
 
         static void PlaceArea(string path, Dictionary<string, PropertyEntry> properties, FileIndex models, GameObject buildings, GameObject trees, GameObject rocks, GameObject props, Report report)
         {
-            Vector2Int tile = ParseTile(Directory.GetParent(path).Name);
             foreach (AreaObject item in ParseArea(path))
             {
                 if (!properties.TryGetValue(NormalizeId(item.Crc), out PropertyEntry property)) { report.Missing.Add("Property CRC " + item.Crc + " | " + path); continue; }
@@ -268,7 +267,9 @@ namespace Metin2Dev
                 if (prefab == null) { report.Missing.Add("FBX import failed | " + source); continue; }
                 GameObject instance = PrefabUtility.InstantiatePrefab(prefab) as GameObject; if (instance == null) continue;
                 instance.name = Path.GetFileNameWithoutExtension(source); instance.transform.SetParent(Category(property, instance.name, buildings, trees, rocks, props).transform, false);
-                instance.transform.localPosition = new Vector3(tile.x * 256f + item.Position.x / MetinUnitsPerUnityUnit, item.Position.z / MetinUnitsPerUnityUnit, tile.y * 256f - item.Position.y / MetinUnitsPerUnityUnit);
+                // AreaData positions are already map-wide Metin2 coordinates. The six-digit
+                // parent folder only identifies which terrain sector owns the record.
+                instance.transform.localPosition = new Vector3(item.Position.x / MetinUnitsPerUnityUnit, item.Position.z / MetinUnitsPerUnityUnit, -item.Position.y / MetinUnitsPerUnityUnit);
                 instance.transform.localRotation = Quaternion.Euler(item.Rotation.x, -item.Rotation.z, item.Rotation.y); AddColliders(instance); report.PlacedObjects++;
             }
         }
