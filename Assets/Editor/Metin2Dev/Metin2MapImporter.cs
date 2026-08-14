@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -115,14 +116,15 @@ namespace Metin2Dev
         static Dictionary<string, PropertyEntry> LoadProperties(IEnumerable<string> all, Report report)
         {
             Dictionary<string, PropertyEntry> result = new Dictionary<string, PropertyEntry>(StringComparer.OrdinalIgnoreCase);
-            foreach (string path in all.Where(p => p.EndsWith(".prb", StringComparison.OrdinalIgnoreCase)))
+            foreach (string path in all.Where(IsPropertyFile))
             {
                 try
                 {
                     string[] lines = File.ReadAllLines(path);
+                    if (!lines.Any(l => l.Trim().Equals("YPRT", StringComparison.OrdinalIgnoreCase))) continue;
                     string crc = lines.Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0 && l.All(char.IsDigit));
                     Dictionary<string, string> values = KeyValues(lines);
-                    string asset = Pick(values, "buildingfile", "treefile", "effectfile", "modelfile", "filename");
+                    string asset = Pick(values, "buildingfile", "dungeonblockfile", "treefile", "effectfile", "modelfile", "filename");
                     string type = Pick(values, "propertytype", "type");
                     if (!string.IsNullOrEmpty(crc)) result[NormalizeId(crc)] = new PropertyEntry { AssetReference = asset.Trim('"'), Type = type.Trim('"'), Source = path };
                 }
@@ -131,20 +133,37 @@ namespace Metin2Dev
             return result;
         }
 
+        static bool IsPropertyFile(string path)
+        {
+            string extension = Path.GetExtension(path);
+            return extension.Equals(".prb", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".prd", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".prt", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".pre", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".prx", StringComparison.OrdinalIgnoreCase);
+        }
+
         static void BuildMap(MapSource map, Dictionary<string, PropertyEntry> properties, FileIndex models, FileIndex textures, FileIndex textFiles, Report report)
         {
             Folders(Output + "/Maps/" + map.Name);
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            int terrainBefore = report.TerrainTiles, objectsBefore = report.PlacedObjects;
             GameObject root = new GameObject(map.Name);
             GameObject terrainRoot = Child(root, "Terrain"), buildings = Child(root, "Buildings"), trees = Child(root, "Trees"), rocks = Child(root, "Rocks"), props = Child(root, "Props"), water = Child(root, "Water");
             Child(root, "Effects"); SetupEnvironment(root); Child(root, "SpawnPoints");
 
             MapSettings settings = ReadSettings(map.SettingPath);
             Dictionary<int, TerrainLayer> layers = CreateTerrainLayers(map, settings, textures, textFiles, report);
-            foreach (string height in SafeFiles(map.Root).Where(p => Path.GetFileName(p).Equals("height.raw", StringComparison.OrdinalIgnoreCase)))
+            List<string> heightFiles = SafeFiles(map.Root).Where(p => Path.GetFileName(p).Equals("height.raw", StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (string height in heightFiles)
                 BuildTerrainTile(map, settings, height, layers, terrainRoot, water, report);
             foreach (string area in SafeFiles(map.Root).Where(p => Path.GetFileName(p).StartsWith("AreaData", StringComparison.OrdinalIgnoreCase)))
-                PlaceArea(area, properties, models, buildings, trees, rocks, props, report);
+                PlaceArea(area, properties, models, textures, buildings, trees, rocks, props, report);
+
+            if (heightFiles.Count > 0 && report.TerrainTiles == terrainBefore)
+                report.Warnings.Add($"{map.Name}: {heightFiles.Count} height.raw file(s) exist, but none contains a supported 16-bit square height grid. Empty or still-encrypted source data was not replaced with guessed terrain.");
+            if (report.PlacedObjects == objectsBefore && SafeFiles(map.Root).Any(p => Path.GetFileName(p).StartsWith("AreaData", StringComparison.OrdinalIgnoreCase)))
+                report.Warnings.Add($"{map.Name}: AreaData exists, but no referenced object could be placed. Check property and converted model coverage.");
 
             SetupPreviewCamera(root);
 
@@ -168,18 +187,61 @@ namespace Metin2Dev
             if (string.IsNullOrEmpty(settings.TextureSet)) return result;
             string textureSetPath = textFiles.Resolve(settings.TextureSet);
             if (textureSetPath == null) { report.Missing.Add(map.Name + " | TextureSet | " + settings.TextureSet); return result; }
-            List<string> references = File.ReadAllLines(textureSetPath).Select(l => l.Trim().Trim('"')).Where(l => ImageExtensions.Contains(Path.GetExtension(l).ToLowerInvariant())).ToList();
-            for (int i = 0; i < references.Count; i++)
+            List<TerrainTextureEntry> entries = ParseTextureSet(textureSetPath, report);
+            foreach (TerrainTextureEntry entry in entries)
             {
-                string source = textures.Resolve(references[i]);
-                if (source == null) { report.Missing.Add(map.Name + " | TerrainTexture | " + references[i]); continue; }
+                string source = textures.Resolve(entry.Reference);
+                if (source == null) { report.Missing.Add(map.Name + " | TerrainTexture | " + entry.Reference); continue; }
                 string textureAssetPath = CopyAsset(source, Raw + "/Textures");
                 Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(textureAssetPath);
                 if (texture == null) { report.Missing.Add(map.Name + " | TextureImport | " + source); continue; }
-                TerrainLayer layer = new TerrainLayer { diffuseTexture = texture, tileSize = new Vector2(12f, 12f) };
-                string layerPath = Output + "/Maps/" + map.Name + "/Layer_" + (i + 1).ToString("D3") + ".terrainlayer";
+                // Metin2 stores repeats over a 16 x 200 cm patch. Unity stores the
+                // reciprocal value: the physical metre size of one texture repeat.
+                float patchMetres = 16f * settings.CellScale / MetinUnitsPerUnityUnit;
+                Vector2 tileSize = new Vector2(
+                    patchMetres / Mathf.Max(0.0001f, Mathf.Abs(entry.UScale)),
+                    patchMetres / Mathf.Max(0.0001f, Mathf.Abs(entry.VScale)));
+                TerrainLayer layer = new TerrainLayer
+                {
+                    diffuseTexture = texture,
+                    tileSize = tileSize,
+                    tileOffset = new Vector2(entry.UOffset * tileSize.x, -entry.VOffset * tileSize.y)
+                };
+                string layerPath = Output + "/Maps/" + map.Name + "/Layer_" + entry.Index.ToString("D3") + ".terrainlayer";
                 if (AssetDatabase.LoadAssetAtPath<TerrainLayer>(layerPath) != null) AssetDatabase.DeleteAsset(layerPath);
-                AssetDatabase.CreateAsset(layer, layerPath); result[i + 1] = layer;
+                AssetDatabase.CreateAsset(layer, layerPath); result[entry.Index] = layer;
+            }
+            return result;
+        }
+
+        static List<TerrainTextureEntry> ParseTextureSet(string path, Report report)
+        {
+            List<TerrainTextureEntry> result = new List<TerrainTextureEntry>();
+            string[] lines = File.ReadAllLines(path); int fallbackIndex = 1;
+            for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+            {
+                string line = lines[lineIndex].Trim();
+                if (!line.StartsWith("Start Texture", StringComparison.OrdinalIgnoreCase)) continue;
+                string suffix = line.Substring("Start Texture".Length).Trim();
+                int index = int.TryParse(suffix, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) ? parsed : fallbackIndex;
+                List<string> values = new List<string>();
+                while (++lineIndex < lines.Length)
+                {
+                    string value = StripComment(lines[lineIndex]).Trim();
+                    if (value.StartsWith("End Texture", StringComparison.OrdinalIgnoreCase)) break;
+                    if (value.Length > 0) values.Add(value.Trim('"'));
+                }
+                fallbackIndex = Mathf.Max(fallbackIndex + 1, index + 1);
+                if (values.Count == 0 || !ImageExtensions.Contains(Path.GetExtension(values[0]).ToLowerInvariant()))
+                {
+                    report.Warnings.Add("Invalid TextureSet block " + index + " | " + path); continue;
+                }
+                TerrainTextureEntry entry = new TerrainTextureEntry { Index = index, Reference = values[0] };
+                if (values.Count > 1 && TryFloat(values[1], out float uScale)) entry.UScale = uScale;
+                if (values.Count > 2 && TryFloat(values[2], out float vScale)) entry.VScale = vScale;
+                if (values.Count > 3 && TryFloat(values[3], out float uOffset)) entry.UOffset = uOffset;
+                if (values.Count > 4 && TryFloat(values[4], out float vOffset)) entry.VOffset = vOffset;
+                result.Add(entry);
             }
             return result;
         }
@@ -204,7 +266,11 @@ namespace Metin2Dev
             if (AssetDatabase.LoadAssetAtPath<TerrainData>(assetPath) != null) AssetDatabase.DeleteAsset(assetPath);
             AssetDatabase.CreateAsset(data, assetPath);
             GameObject terrain = Terrain.CreateTerrainGameObject(data); terrain.name = tileName; terrain.transform.SetParent(terrainRoot.transform, false); terrain.transform.localPosition = new Vector3(tile.x * tileSize, 0f, tile.y * tileSize);
-            report.TerrainTiles++; BuildWater(map, Directory.GetParent(heightPath).FullName, tile, tileSize, waterRoot, report);
+            // Unity's generated distant-terrain basemap can be unavailable during a
+            // freshly generated scene and renders magenta. Keep the source splat
+            // layers active across the map; this also preserves their exact tiling.
+            terrain.GetComponent<Terrain>().basemapDistance = 100000f;
+            report.TerrainTiles++; BuildWater(map, settings, Directory.GetParent(heightPath).FullName, tile, tileSize, raw, sourceSize, waterRoot, report);
         }
 
         static void ApplyTileTextures(TerrainData data, string tileDirectory, Dictionary<int, TerrainLayer> available)
@@ -216,26 +282,49 @@ namespace Metin2Dev
             int resolution = Mathf.Clamp(Mathf.ClosestPowerOfTwo(sourceSize - 2), 16, 2048);
             data.alphamapResolution = resolution; data.terrainLayers = used.Select(i => available[i]).ToArray();
             float[,,] alpha = new float[resolution, resolution, used.Count];
-            Dictionary<int, int> lookup = used.Select((value, index) => new { value, index }).ToDictionary(x => x.value, x => x.index);
             for (int z = 0; z < resolution; z++) for (int x = 0; x < resolution; x++)
             {
-                int textureId = values[Mathf.Clamp(z + 1, 0, sourceSize - 1) * sourceSize + Mathf.Clamp(x + 1, 0, sourceSize - 1)];
-                alpha[z, x, lookup.TryGetValue(textureId, out int layer) ? layer : 0] = 1f;
+                int sx = Mathf.Clamp(x + 1, 0, sourceSize - 1), sz = Mathf.Clamp(z + 1, 0, sourceSize - 1);
+                int textureId = values[sz * sourceSize + sx]; float total = 0f;
+                for (int layer = 0; layer < used.Count; layer++)
+                {
+                    int candidate = used[layer]; bool painted = textureId == candidate;
+                    // This is the original client's splat-priority seam rule: a lower
+                    // numbered texture bleeds one cell under a neighbouring higher one.
+                    if (!painted && textureId > candidate)
+                    {
+                        for (int dz = -1; dz <= 1 && !painted; dz++) for (int dx = -1; dx <= 1; dx++)
+                        {
+                            if (dx == 0 && dz == 0) continue;
+                            int nx = Mathf.Clamp(sx + dx, 0, sourceSize - 1), nz = Mathf.Clamp(sz + dz, 0, sourceSize - 1);
+                            if (values[nz * sourceSize + nx] == candidate) { painted = true; break; }
+                        }
+                    }
+                    if (painted) { alpha[z, x, layer] = 1f; total += 1f; }
+                }
+                if (total <= 0f) alpha[z, x, 0] = 1f;
+                else if (total > 1f) for (int layer = 0; layer < used.Count; layer++) alpha[z, x, layer] /= total;
             }
             data.SetAlphamaps(0, 0, alpha);
         }
 
-        static void BuildWater(MapSource map, string tileDirectory, Vector2Int tile, float tileSize, GameObject parent, Report report)
+        static void BuildWater(MapSource map, MapSettings settings, string tileDirectory, Vector2Int tile, float tileSize, byte[] heightRaw, int heightSourceSize, GameObject parent, Report report)
         {
             string path = Directory.EnumerateFiles(tileDirectory).FirstOrDefault(p => Path.GetFileName(p).Equals("water.wtr", StringComparison.OrdinalIgnoreCase));
             if (path == null) return; byte[] data = File.ReadAllBytes(path); if (data.Length < 7) return;
             int width = data[2] | data[3] << 8, height = data[4] | data[5] << 8, waterCount = data[6], gridOffset = 7, heightsOffset = gridOffset + width * height;
-            if (width <= 0 || height <= 0 || waterCount <= 0 || heightsOffset + waterCount * 4 > data.Length) return;
-            int[] levels = new int[waterCount]; for (int i = 0; i < waterCount; i++) levels[i] = BitConverter.ToInt32(data, heightsOffset + i * 4);
+            if (width <= 0 || height <= 0 || waterCount <= 0 || heightsOffset >= data.Length) return;
+            int remaining = data.Length - heightsOffset, bytesPerLevel = remaining >= waterCount * 4 ? 4 : remaining >= waterCount * 2 ? 2 : 0;
+            if (bytesPerLevel == 0) { report.Warnings.Add("Unsupported water data: " + path); return; }
+            int[] levels = new int[waterCount];
+            for (int i = 0; i < waterCount; i++) levels[i] = bytesPerLevel == 4 ? BitConverter.ToInt32(data, heightsOffset + i * 4) : BitConverter.ToUInt16(data, heightsOffset + i * 2);
             List<Vector3> vertices = new List<Vector3>(); List<int> triangles = new List<int>(); List<Vector2> uv = new List<Vector2>(); float cellX = tileSize / width, cellZ = tileSize / height;
             for (int z = 0; z < height; z++) for (int x = 0; x < width; x++)
             {
-                byte id = data[gridOffset + z * width + x]; if (id == 0xFF || id >= levels.Length) continue; float y = levels[id] / MetinUnitsPerUnityUnit; int start = vertices.Count;
+                byte id = data[gridOffset + z * width + x]; if (id == 0xFF || id >= levels.Length) continue;
+                int rawWaterHeight = levels[id];
+                if (!WaterIsAboveTerrain(rawWaterHeight, x, z, heightRaw, heightSourceSize)) continue;
+                float y = rawWaterHeight * settings.HeightScale / MetinUnitsPerUnityUnit; int start = vertices.Count;
                 vertices.Add(new Vector3(x * cellX, y, z * cellZ)); vertices.Add(new Vector3((x + 1) * cellX, y, z * cellZ)); vertices.Add(new Vector3((x + 1) * cellX, y, (z + 1) * cellZ)); vertices.Add(new Vector3(x * cellX, y, (z + 1) * cellZ));
                 uv.Add(Vector2.zero); uv.Add(Vector2.right); uv.Add(Vector2.one); uv.Add(Vector2.up);
                 triangles.Add(start); triangles.Add(start + 2); triangles.Add(start + 1); triangles.Add(start); triangles.Add(start + 3); triangles.Add(start + 2);
@@ -249,21 +338,50 @@ namespace Metin2Dev
             go.GetComponent<MeshFilter>().sharedMesh = mesh; go.GetComponent<MeshRenderer>().sharedMaterial = GetWaterMaterial(); report.WaterTiles++;
         }
 
-        static Material GetWaterMaterial()
+        static bool WaterIsAboveTerrain(int waterHeight, int x, int z, byte[] heightRaw, int sourceSize)
         {
-            string path = Output + "/Water.mat"; Material material = AssetDatabase.LoadAssetAtPath<Material>(path); if (material != null) return material;
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            material = new Material(shader) { name = "Metin2 Water", color = new Color(0.08f, 0.35f, 0.55f, 0.72f) }; AssetDatabase.CreateAsset(material, path); return material;
+            if (heightRaw == null || sourceSize < 3) return true;
+            int x0 = Mathf.Clamp(x + 1, 0, sourceSize - 1), x1 = Mathf.Clamp(x + 2, 0, sourceSize - 1);
+            int z0 = Mathf.Clamp(z + 1, 0, sourceSize - 1), z1 = Mathf.Clamp(z + 2, 0, sourceSize - 1);
+            return waterHeight > RawHeight(heightRaw, sourceSize, x0, z0)
+                || waterHeight > RawHeight(heightRaw, sourceSize, x1, z0)
+                || waterHeight > RawHeight(heightRaw, sourceSize, x0, z1)
+                || waterHeight > RawHeight(heightRaw, sourceSize, x1, z1);
         }
 
-        static void PlaceArea(string path, Dictionary<string, PropertyEntry> properties, FileIndex models, GameObject buildings, GameObject trees, GameObject rocks, GameObject props, Report report)
+        static ushort RawHeight(byte[] raw, int size, int x, int z)
+        {
+            int offset = (z * size + x) * 2; return (ushort)(raw[offset] | raw[offset + 1] << 8);
+        }
+
+        static Material GetWaterMaterial()
+        {
+            string path = Output + "/Water.mat"; Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            if (material == null) material = new Material(shader) { name = "Metin2 Water" };
+            else if (material.shader != shader) material.shader = shader;
+            material.color = new Color(0.08f, 0.35f, 0.55f, 0.72f);
+            if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT"); material.renderQueue = (int)RenderQueue.Transparent;
+            if (AssetDatabase.LoadAssetAtPath<Material>(path) == null) AssetDatabase.CreateAsset(material, path);
+            else EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        static void PlaceArea(string path, Dictionary<string, PropertyEntry> properties, FileIndex models, FileIndex textures, GameObject buildings, GameObject trees, GameObject rocks, GameObject props, Report report)
         {
             foreach (AreaObject item in ParseArea(path))
             {
                 if (!properties.TryGetValue(NormalizeId(item.Crc), out PropertyEntry property)) { report.Missing.Add("Property CRC " + item.Crc + " | " + path); continue; }
                 if (string.IsNullOrEmpty(property.AssetReference)) { report.Missing.Add("Empty property asset " + item.Crc + " | " + property.Source); continue; }
+                if (property.Type.Equals("Effect", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(property.AssetReference).Equals(".mse", StringComparison.OrdinalIgnoreCase))
+                {
+                    report.Unsupported.Add("Effect | " + property.AssetReference + " | CRC " + item.Crc);
+                    continue;
+                }
                 string source = models.Resolve(property.AssetReference); if (source == null) { report.Missing.Add(property.AssetReference + " | CRC " + item.Crc); continue; }
-                string assetPath = CopyModelWithTextures(source); GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+                string assetPath = CopyModelWithTextures(source, textures, report); GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
                 if (prefab == null) { report.Missing.Add("FBX import failed | " + source); continue; }
                 GameObject instance = PrefabUtility.InstantiatePrefab(prefab) as GameObject; if (instance == null) continue;
                 instance.name = Path.GetFileNameWithoutExtension(source); instance.transform.SetParent(Category(property, instance.name, buildings, trees, rocks, props).transform, false);
@@ -299,14 +417,47 @@ namespace Metin2Dev
             return new AreaObject { Crc = lines[1].Trim(), Position = new Vector3(x, y, z), Rotation = rotation };
         }
 
-        static string CopyModelWithTextures(string source)
+        static string CopyModelWithTextures(string source, FileIndex textures, Report report)
         {
             if (ImportedModels.TryGetValue(source, out string existing)) return existing;
             string sourceDirectory = Directory.GetParent(source).FullName;
             string folder = Raw + "/Models/" + Clean(new DirectoryInfo(sourceDirectory).Name) + "_" + Hash(sourceDirectory); Folders(folder);
             if (ImportedModelDirectories.Add(sourceDirectory))
-                foreach (string texture in Directory.EnumerateFiles(sourceDirectory).Where(p => ImageExtensions.Contains(Path.GetExtension(p).ToLowerInvariant()))) CopyAsset(texture, folder, false);
+                foreach (string texture in Directory.EnumerateFiles(sourceDirectory).Where(p => ImageExtensions.Contains(Path.GetExtension(p).ToLowerInvariant())))
+                {
+                    CopyAsset(texture, folder, false);
+                    // GrannyExporter replaces these characters in the FBX material
+                    // reference, while the separately converted PNG keeps them.
+                    string alias = SanitizeExporterTextureName(Path.GetFileName(texture));
+                    if (!alias.Equals(Path.GetFileName(texture), StringComparison.OrdinalIgnoreCase)) CopyAssetAs(texture, folder, alias);
+                }
+            foreach (string expectedName in ReadFbxTextureNames(source))
+            {
+                string expectedPath = Path.Combine(sourceDirectory, expectedName);
+                string texture = File.Exists(expectedPath) ? expectedPath : textures.Resolve(expectedName);
+                if (texture == null) { report.Missing.Add("FBX texture | " + expectedName + " | " + source); continue; }
+                CopyAssetAs(texture, folder, expectedName);
+            }
             string asset = CopyAsset(source, folder, false); AssetDatabase.ImportAsset(asset, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ImportRecursive); ImportedModels[source] = asset; return asset;
+        }
+
+        static IEnumerable<string> ReadFbxTextureNames(string source)
+        {
+            if (!Path.GetExtension(source).Equals(".fbx", StringComparison.OrdinalIgnoreCase)) yield break;
+            string text;
+            try { text = Encoding.ASCII.GetString(File.ReadAllBytes(source)); }
+            catch { yield break; }
+            HashSet<string> found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match match in Regex.Matches(text, @"(?i)[a-z0-9_#() .-]+\.png"))
+            {
+                string name = Path.GetFileName(match.Value.Trim());
+                if (name.Length > 4 && found.Add(name)) yield return name;
+            }
+        }
+
+        static string SanitizeExporterTextureName(string name)
+        {
+            return (name ?? "").Replace('-', '_').Replace(' ', '_').Replace('#', '_');
         }
 
         static string CopyAsset(string source, string folder, bool hashName = true)
@@ -315,6 +466,15 @@ namespace Metin2Dev
             if (ImportedAssets.TryGetValue(cacheKey, out string cached)) return cached;
             Folders(folder); string name = Clean(Path.GetFileNameWithoutExtension(source)); if (hashName) name += "_" + Hash(source);
             string target = folder + "/" + name + Path.GetExtension(source).ToLowerInvariant(); string absolute = Path.Combine(Directory.GetParent(Application.dataPath).FullName, target);
+            if (!File.Exists(absolute) || File.GetLastWriteTimeUtc(source) > File.GetLastWriteTimeUtc(absolute)) File.Copy(source, absolute, true);
+            AssetDatabase.ImportAsset(target, ImportAssetOptions.ForceSynchronousImport); ImportedAssets[cacheKey] = target; return target;
+        }
+
+        static string CopyAssetAs(string source, string folder, string targetFileName)
+        {
+            targetFileName = Clean(Path.GetFileName(targetFileName)); string cacheKey = source + "|" + folder + "|" + targetFileName;
+            if (ImportedAssets.TryGetValue(cacheKey, out string cached)) return cached;
+            Folders(folder); string target = folder + "/" + targetFileName; string absolute = Path.Combine(Directory.GetParent(Application.dataPath).FullName, target);
             if (!File.Exists(absolute) || File.GetLastWriteTimeUtc(source) > File.GetLastWriteTimeUtc(absolute)) File.Copy(source, absolute, true);
             AssetDatabase.ImportAsset(target, ImportAssetOptions.ForceSynchronousImport); ImportedAssets[cacheKey] = target; return target;
         }
@@ -333,7 +493,7 @@ namespace Metin2Dev
             string value = (property.Type + " " + name).ToLowerInvariant();
             if (value.Contains("tree") || value.Contains("bush") || value.Contains("grass")) return trees;
             if (value.Contains("rock") || value.Contains("stone") || value.Contains("cliff")) return rocks;
-            if (value.Contains("building") || value.Contains("house") || value.Contains("bridge") || value.Contains("wall")) return buildings;
+            if (value.Contains("building") || value.Contains("dungeonblock") || value.Contains("house") || value.Contains("bridge") || value.Contains("wall")) return buildings;
             return props;
         }
 
@@ -421,17 +581,19 @@ namespace Metin2Dev
 
         sealed class MapSource { public string Root; public string Name; public string SettingPath; }
         sealed class MapSettings { public float CellScale = 200f; public float HeightScale = 0.5f; public string TextureSet = ""; }
+        sealed class TerrainTextureEntry { public int Index; public string Reference; public float UScale = 1f, VScale = 1f, UOffset, VOffset; }
         sealed class PropertyEntry { public string AssetReference; public string Type; public string Source; }
         sealed class AreaObject { public string Crc; public Vector3 Position; public Vector3 Rotation; }
         sealed class Report
         {
             public int BuiltMaps, TerrainTiles, WaterTiles, PlacedObjects;
-            public readonly HashSet<string> Missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase); public readonly List<string> Warnings = new List<string>(); public readonly List<string> Errors = new List<string>();
+            public readonly HashSet<string> Missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase); public readonly HashSet<string> Unsupported = new HashSet<string>(StringComparer.OrdinalIgnoreCase); public readonly List<string> Warnings = new List<string>(); public readonly List<string> Errors = new List<string>();
             public void Save(IEnumerable<string> roots, int maps, int properties, int models, int textures)
             {
                 StringBuilder text = new StringBuilder("Metin2 Map Import Report\n" + DateTime.Now.ToString("u") + "\n\nSources:\n"); foreach (string root in roots) text.AppendLine("- " + root);
-                text.AppendLine($"\nMaps found: {maps}\nMaps built: {BuiltMaps}\nTerrain tiles: {TerrainTiles}\nWater tiles: {WaterTiles}\nObjects placed: {PlacedObjects}\nProperties indexed: {properties}\nModels indexed: {models}\nTextures indexed: {textures}\nMissing references: {Missing.Count}\n");
+                text.AppendLine($"\nMaps found: {maps}\nMaps built: {BuiltMaps}\nTerrain tiles: {TerrainTiles}\nWater tiles: {WaterTiles}\nObjects placed: {PlacedObjects}\nProperties indexed: {properties}\nModels indexed: {models}\nTextures indexed: {textures}\nMissing references: {Missing.Count}\nUnsupported source features: {Unsupported.Count}\n");
                 text.AppendLine("Missing references:"); foreach (string item in Missing.OrderBy(x => x)) text.AppendLine("- " + item);
+                text.AppendLine("\nUnsupported source features:"); foreach (string item in Unsupported.OrderBy(x => x)) text.AppendLine("- " + item);
                 text.AppendLine("\nWarnings:"); foreach (string item in Warnings) text.AppendLine("- " + item); text.AppendLine("\nErrors:"); foreach (string item in Errors) text.AppendLine("- " + item);
                 File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, Output, "ImportReport.txt"), text.ToString(), Encoding.UTF8); AssetDatabase.ImportAsset(Output + "/ImportReport.txt");
             }
