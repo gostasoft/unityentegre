@@ -260,11 +260,16 @@ namespace Metin2Dev
             float tileSize = (resolution - 1) * settings.CellScale / MetinUnitsPerUnityUnit;
             float terrainHeight = 65535f * settings.HeightScale / MetinUnitsPerUnityUnit;
             TerrainData data = new TerrainData { heightmapResolution = resolution, size = new Vector3(tileSize, terrainHeight, tileSize), baseMapResolution = 256 };
-            data.SetHeights(0, 0, heights); ApplyTileTextures(data, Directory.GetParent(heightPath).FullName, availableLayers);
             Vector2Int tile = ParseTile(Directory.GetParent(heightPath).Name); string tileName = tile.x.ToString("D3") + tile.y.ToString("D3");
             string assetPath = Output + "/Maps/" + map.Name + "/Terrain_" + tileName + ".asset";
             if (AssetDatabase.LoadAssetAtPath<TerrainData>(assetPath) != null) AssetDatabase.DeleteAsset(assetPath);
+            // Terrain alphamaps are stored as generated sub-assets. The TerrainData
+            // must already be a project asset before SetAlphamaps is called or Unity
+            // keeps only the default first-layer splat when the object is saved.
             AssetDatabase.CreateAsset(data, assetPath);
+            data.SetHeights(0, 0, heights);
+            ApplyTileTextures(data, Directory.GetParent(heightPath).FullName, availableLayers);
+            EditorUtility.SetDirty(data);
             GameObject terrain = Terrain.CreateTerrainGameObject(data); terrain.name = tileName; terrain.transform.SetParent(terrainRoot.transform, false); terrain.transform.localPosition = new Vector3(tile.x * tileSize, 0f, tile.y * tileSize);
             // Unity's generated distant-terrain basemap can be unavailable during a
             // freshly generated scene and renders magenta. Keep the source splat
@@ -281,31 +286,114 @@ namespace Metin2Dev
             List<int> used = values.Distinct().Select(v => (int)v).Where(v => v > 0 && available.ContainsKey(v)).OrderBy(v => v).ToList(); if (used.Count == 0) return;
             int resolution = Mathf.Clamp(Mathf.ClosestPowerOfTwo(sourceSize - 2), 16, 2048);
             data.alphamapResolution = resolution; data.terrainLayers = used.Select(i => available[i]).ToArray();
+            Dictionary<int, float[,]> masks = used.ToDictionary(i => i, i => BuildMetin2SplatMask(values, sourceSize, resolution, i));
+            int[,] patchTileCounts = CountMetin2PatchTiles(values, sourceSize, resolution);
+            int patchPixels = 32;
+            int patchCount = Mathf.Max(1, resolution / patchPixels);
             float[,,] alpha = new float[resolution, resolution, used.Count];
             for (int z = 0; z < resolution; z++) for (int x = 0; x < resolution; x++)
             {
-                int sx = Mathf.Clamp(x + 1, 0, sourceSize - 1), sz = Mathf.Clamp(z + 1, 0, sourceSize - 1);
-                int textureId = values[sz * sourceSize + sx]; float total = 0f;
+                int patchX = Mathf.Min(patchCount - 1, x / patchPixels);
+                int patchZ = Mathf.Min(patchCount - 1, z / patchPixels);
+                int patch = patchZ * patchCount + patchX;
+                int firstLayer = -1;
                 for (int layer = 0; layer < used.Count; layer++)
                 {
-                    int candidate = used[layer]; bool painted = textureId == candidate;
-                    // This is the original client's splat-priority seam rule: a lower
-                    // numbered texture bleeds one cell under a neighbouring higher one.
-                    if (!painted && textureId > candidate)
-                    {
-                        for (int dz = -1; dz <= 1 && !painted; dz++) for (int dx = -1; dx <= 1; dx++)
-                        {
-                            if (dx == 0 && dz == 0) continue;
-                            int nx = Mathf.Clamp(sx + dx, 0, sourceSize - 1), nz = Mathf.Clamp(sz + dz, 0, sourceSize - 1);
-                            if (values[nz * sourceSize + nx] == candidate) { painted = true; break; }
-                        }
-                    }
-                    if (painted) { alpha[z, x, layer] = 1f; total += 1f; }
+                    if (patchTileCounts[patch, used[layer]] > 0) { firstLayer = layer; break; }
                 }
-                if (total <= 0f) alpha[z, x, 0] = 1f;
-                else if (total > 1f) for (int layer = 0; layer < used.Count; layer++) alpha[z, x, layer] /= total;
+                if (firstLayer < 0) firstLayer = 0;
+
+                // Metin2 renders splats in ascending texture-number order. The first
+                // texture used by each 16x16-cell patch is opaque; every following
+                // texture is composited over it with its generated alpha texture.
+                // Convert that source-over sequence to Unity's normalized layer weights.
+                alpha[z, x, firstLayer] = 1f;
+                for (int layer = firstLayer + 1; layer < used.Count; layer++)
+                {
+                    if (patchTileCounts[patch, used[layer]] == 0) continue;
+                    float sourceAlpha = masks[used[layer]][z, x];
+                    if (sourceAlpha <= 0f) continue;
+                    for (int previous = 0; previous < layer; previous++) alpha[z, x, previous] *= 1f - sourceAlpha;
+                    alpha[z, x, layer] = sourceAlpha;
+                }
             }
             data.SetAlphamaps(0, 0, alpha);
+        }
+
+        static float[,] BuildMetin2SplatMask(byte[] tiles, int sourceSize, int resolution, int textureId)
+        {
+            byte[] rawMask = new byte[sourceSize * sourceSize];
+            for (int y = 0; y < sourceSize; y++) for (int x = 0; x < sourceSize; x++)
+            {
+                int offset = y * sourceSize + x;
+                int tile = tiles[offset];
+                bool painted = tile == textureId;
+                if (!painted && tile > textureId)
+                {
+                    for (int dy = -1; dy <= 1 && !painted; dy++) for (int dx = -1; dx <= 1; dx++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = x + dx, ny = y + dy;
+                        if (nx >= 0 && ny >= 0 && nx < sourceSize && ny < sourceSize && tiles[ny * sourceSize + nx] == textureId)
+                        { painted = true; break; }
+                    }
+                }
+                rawMask[offset] = painted ? (byte)255 : (byte)0;
+            }
+
+            float[,] result = new float[resolution, resolution];
+            for (int y = 0; y < resolution; y++) for (int x = 0; x < resolution; x++)
+            {
+                int top = y * sourceSize + x;
+                int neighbours = rawMask[top] + rawMask[top + 1] + rawMask[top + 2]
+                    + rawMask[top + sourceSize] + rawMask[top + sourceSize + 2]
+                    + rawMask[top + sourceSize * 2] + rawMask[top + sourceSize * 2 + 1] + rawMask[top + sourceSize * 2 + 2];
+                int filtered = ((neighbours >> 3) + rawMask[top + sourceSize + 1]) >> 1;
+                result[y, x] = filtered / 255f;
+            }
+            return result;
+        }
+
+        static int[,] CountMetin2PatchTiles(byte[] tiles, int sourceSize, int resolution)
+        {
+            const int patchPixels = 32;
+            int patchCount = Mathf.Max(1, resolution / patchPixels);
+            int[,] counts = new int[patchCount * patchCount, 256];
+            Action<int, int, int> add = (patchX, patchY, tile) =>
+            {
+                patchX = Mathf.Clamp(patchX, 0, patchCount - 1); patchY = Mathf.Clamp(patchY, 0, patchCount - 1);
+                counts[patchY * patchCount + patchX, tile]++;
+            };
+
+            for (int y = 0; y < sourceSize; y++)
+            {
+                int patchY = Mathf.Clamp((y - 1) / patchPixels, 0, patchCount - 1);
+                for (int x = 0; x < sourceSize; x++)
+                {
+                    int patchX = Mathf.Clamp((x - 1) / patchPixels, 0, patchCount - 1);
+                    int tile = tiles[y * sourceSize + x];
+                    add(patchX, patchY, tile);
+                    bool nextY = y % patchPixels == 0 && y != 0 && y != sourceSize - 2;
+                    bool previousY = y % patchPixels == 1 && y != 1 && y != sourceSize - 1;
+                    bool nextX = x % patchPixels == 0 && x != 0 && x != sourceSize - 2;
+                    bool previousX = x % patchPixels == 1 && x != 1 && x != sourceSize - 1;
+                    if (nextY)
+                    {
+                        add(patchX, patchY + 1, tile);
+                        if (nextX) add(patchX + 1, patchY + 1, tile);
+                        else if (previousX) add(patchX - 1, patchY + 1, tile);
+                    }
+                    else if (previousY)
+                    {
+                        add(patchX, patchY - 1, tile);
+                        if (nextX) add(patchX + 1, patchY - 1, tile);
+                        else if (previousX) add(patchX - 1, patchY - 1, tile);
+                    }
+                    if (nextX) add(patchX + 1, patchY, tile);
+                    else if (previousX) add(patchX - 1, patchY, tile);
+                }
+            }
+            return counts;
         }
 
         static void BuildWater(MapSource map, MapSettings settings, string tileDirectory, Vector2Int tile, float tileSize, byte[] heightRaw, int heightSourceSize, GameObject parent, Report report)
@@ -387,8 +475,8 @@ namespace Metin2Dev
                 instance.name = Path.GetFileNameWithoutExtension(source); instance.transform.SetParent(Category(property, instance.name, buildings, trees, rocks, props).transform, false);
                 // AreaData positions are already map-wide Metin2 coordinates. The six-digit
                 // parent folder only identifies which terrain sector owns the record.
-                instance.transform.localPosition = new Vector3(item.Position.x / MetinUnitsPerUnityUnit, item.Position.z / MetinUnitsPerUnityUnit, -item.Position.y / MetinUnitsPerUnityUnit);
-                instance.transform.localRotation = Quaternion.Euler(item.Rotation.x, -item.Rotation.z, item.Rotation.y); AddColliders(instance); report.PlacedObjects++;
+                instance.transform.localPosition = new Vector3(item.Position.x / MetinUnitsPerUnityUnit, (item.Position.z + item.HeightBias) / MetinUnitsPerUnityUnit, -item.Position.y / MetinUnitsPerUnityUnit);
+                instance.transform.localRotation = Metin2Rotation(item.Rotation); AddColliders(instance); report.PlacedObjects++;
             }
         }
 
@@ -414,7 +502,27 @@ namespace Metin2Dev
                 string[] rot = lines[2].Split(new[] { '#', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                 if (rot.Length >= 3 && TryFloat(rot[0], out float rx) && TryFloat(rot[1], out float ry) && TryFloat(rot[2], out float rz)) rotation = new Vector3(rx, ry, rz);
             }
-            return new AreaObject { Crc = lines[1].Trim(), Position = new Vector3(x, y, z), Rotation = rotation };
+            float heightBias = 0f;
+            if (lines.Count > 3) TryFloat(lines[3], out heightBias);
+            return new AreaObject { Crc = lines[1].Trim(), Position = new Vector3(x, y, z), Rotation = rotation, HeightBias = heightBias };
+        }
+
+        static Quaternion Metin2Rotation(Vector3 yawPitchRoll)
+        {
+            float halfYaw = yawPitchRoll.x * Mathf.Deg2Rad * 0.5f;
+            float halfPitch = yawPitchRoll.y * Mathf.Deg2Rad * 0.5f;
+            float halfRoll = yawPitchRoll.z * Mathf.Deg2Rad * 0.5f;
+            float sy = Mathf.Sin(halfYaw), cy = Mathf.Cos(halfYaw);
+            float sp = Mathf.Sin(halfPitch), cp = Mathf.Cos(halfPitch);
+            float sr = Mathf.Sin(halfRoll), cr = Mathf.Cos(halfRoll);
+
+            // D3DXQuaternionRotationYawPitchRoll, followed by the same Z-up to
+            // Unity Y-up basis change already applied by Unity's FBX importer.
+            float d3dX = cy * sp * cr + sy * cp * sr;
+            float d3dY = sy * cp * cr - cy * sp * sr;
+            float d3dZ = cy * cp * sr - sy * sp * cr;
+            float d3dW = cy * cp * cr + sy * sp * sr;
+            return new Quaternion(d3dX, d3dZ, -d3dY, d3dW).normalized;
         }
 
         static string CopyModelWithTextures(string source, FileIndex textures, Report report)
@@ -583,7 +691,7 @@ namespace Metin2Dev
         sealed class MapSettings { public float CellScale = 200f; public float HeightScale = 0.5f; public string TextureSet = ""; }
         sealed class TerrainTextureEntry { public int Index; public string Reference; public float UScale = 1f, VScale = 1f, UOffset, VOffset; }
         sealed class PropertyEntry { public string AssetReference; public string Type; public string Source; }
-        sealed class AreaObject { public string Crc; public Vector3 Position; public Vector3 Rotation; }
+        sealed class AreaObject { public string Crc; public Vector3 Position; public Vector3 Rotation; public float HeightBias; }
         sealed class Report
         {
             public int BuiltMaps, TerrainTiles, WaterTiles, PlacedObjects;
