@@ -1387,7 +1387,13 @@ namespace Metin2Dev
         static bool IsStraightWallName(string value)
         {
             value = (value ?? "").ToLowerInvariant();
-            if (value.Contains("middledam")) return true;
+            if (value.Contains("middledam"))
+            {
+                // The converted FBX geometry and AreaData spacing show that only 02/03/04
+                // are endpoint-pivoted straight segments (10 m / 5 m / 2.5 m). 01 is a
+                // centred standalone structure; 05/07 are square turn/tower pieces.
+                return Regex.IsMatch(value, @"middledam[-_](02|03|04)(?:\D|$)");
+            }
             if (!value.Contains("wall")) return false;
             // Corner, doorway and pillar assets have their own complete footprint and
             // therefore use the normal uniform building scale shown in the source set.
