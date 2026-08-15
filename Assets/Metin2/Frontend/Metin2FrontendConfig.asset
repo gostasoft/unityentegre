@@ -1,0 +1,71 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ee8c7a0ec62d7e4898664457beaaf6f, type: 3}
+  m_Name: Metin2FrontendConfig
+  m_EditorClassIdentifier: Assembly-CSharp::Metin2Dev.Frontend.Metin2FrontendConfig
+  loginBackground: {fileID: 2800000, guid: 666dc42a92eea8648ad8e2d498fc5288, type: 3}
+  serverBackground: {fileID: 2800000, guid: ca1c1ad409799b641965ebd7d9e554d5, type: 3}
+  selectionBackground: {fileID: 2800000, guid: 166ee515a53348a468c8a50db76fdd0c, type: 3}
+  loadingBackgrounds:
+  - {fileID: 2800000, guid: 9dc492ce46f2772468238cb15978e650, type: 3}
+  - {fileID: 2800000, guid: 1955849c67fcaaf4cb5ebdc2e84bf0d5, type: 3}
+  - {fileID: 2800000, guid: e01f89932eaa1ce4f9b29ababc056f55, type: 3}
+  - {fileID: 2800000, guid: d18bcecdd7cd1154aa7984230b205e58, type: 3}
+  previewShader: {fileID: 4800000, guid: 1a40a99e2e779204cb033f8a652a765d, type: 3}
+  racePrefabs:
+  - {fileID: 919132149155446097, guid: 0a650a1e1e1d4dc4daa008f5be0fab1e, type: 3}
+  - {fileID: 919132149155446097, guid: 2630b52711da9ad439243c7b3fdb3191, type: 3}
+  - {fileID: 919132149155446097, guid: b887d85655ac5c44c85b726ed2e58a75, type: 3}
+  - {fileID: 919132149155446097, guid: 262356120d3cbdd4ab40ccd2d844202d, type: 3}
+  - {fileID: 919132149155446097, guid: fb3d643345373fe47805e37f65b065bd, type: 3}
+  - {fileID: 919132149155446097, guid: 224d78de0f70c5a44956a8ebcb1cf65d, type: 3}
+  - {fileID: 919132149155446097, guid: e6f8f8e9e65b73f4995f4ecc89b7fb36, type: 3}
+  - {fileID: 919132149155446097, guid: c9e3c2b01c1fd774981b9fe3d0ff2f1c, type: 3}
+  hairPrefabs:
+  - {fileID: 919132149155446097, guid: 1afa64d0581a861468ba5706e132ed86, type: 3}
+  - {fileID: 919132149155446097, guid: 8afb94a69a1551341a9a83dab91e4152, type: 3}
+  - {fileID: 919132149155446097, guid: e390604ce7665354ba5cde59106a7738, type: 3}
+  - {fileID: 919132149155446097, guid: 9184d0bfdfaa0f14fb4053b736484810, type: 3}
+  - {fileID: 919132149155446097, guid: f1d3f6406d0b4064b81663bc96a18656, type: 3}
+  - {fileID: 919132149155446097, guid: d81144bf08d6e004997834e03747e8c4, type: 3}
+  - {fileID: 919132149155446097, guid: c8dc9f03c9c76354f922cf69e7b17e99, type: 3}
+  - {fileID: 919132149155446097, guid: e50ffece0919d384bb527e59d6fb3d81, type: 3}
+  bodyTextures:
+  - {fileID: 2800000, guid: e6bb83e5ee8457e46b1218ea905063e2, type: 3}
+  - {fileID: 2800000, guid: d0593041879db0c468a3981d63108a9b, type: 3}
+  - {fileID: 2800000, guid: 598f6dec86ec6024381de89425882c11, type: 3}
+  - {fileID: 2800000, guid: ff6a32e1b835dd34288f87dfa30068d9, type: 3}
+  - {fileID: 2800000, guid: a52b2762c1494a64d995acd0b8fcd22c, type: 3}
+  - {fileID: 2800000, guid: d725f1823f310be4b917e93a1a027882, type: 3}
+  - {fileID: 2800000, guid: bc17992e7b2432f4698ee8d5c75ce86f, type: 3}
+  - {fileID: 2800000, guid: cfbbc2dfc30f07a4c95b3903a936ed57, type: 3}
+  faceTextures:
+  - {fileID: 2800000, guid: f3f7f41993eaf8f4cbbf9bdf7b43d3fb, type: 3}
+  - {fileID: 2800000, guid: a5954e7bf846a4546b521ded68664e76, type: 3}
+  - {fileID: 2800000, guid: 825833de19f478c49a9108a08d4d7c39, type: 3}
+  - {fileID: 2800000, guid: 03b6b87599675ee408bd61b293fb1011, type: 3}
+  - {fileID: 2800000, guid: 72d028d97c47d8047bd51103d1edc202, type: 3}
+  - {fileID: 2800000, guid: a2f11d1ee570b1340980c18714490d47, type: 3}
+  - {fileID: 2800000, guid: af4d4ef3456a9a94faa6031e61497b20, type: 3}
+  - {fileID: 2800000, guid: af71b15f3ddd6504bbcfc245fa1ac73a, type: 3}
+  hairTextures:
+  - {fileID: 2800000, guid: 6e729c1a4f9c18946b22dfa7707ddbfa, type: 3}
+  - {fileID: 2800000, guid: c329626972f4c434692e3aa3197b7c43, type: 3}
+  - {fileID: 2800000, guid: e3f5eb8febd9bb14789669afdfa02038, type: 3}
+  - {fileID: 2800000, guid: 78f7ea66ed2d5e7469beb8b9fdbd409b, type: 3}
+  - {fileID: 2800000, guid: 6217e641c5b7e4b42a4b102c6d5e37d2, type: 3}
+  - {fileID: 2800000, guid: 5be5e62eb4165424db07703aed754959, type: 3}
+  - {fileID: 2800000, guid: 612ebf0f987325641a9b32e66696643b, type: 3}
+  - {fileID: 2800000, guid: bbaf429aba544364c8730ee37bcbedb8, type: 3}
+  shinsooScene: metin2_map_a1
+  chunjoScene: metin2_map_b1
+  jinnoScene: metin2_map_c1

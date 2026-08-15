@@ -1,0 +1,268 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+namespace Metin2Dev.Frontend.Editor
+{
+    public static class Metin2FrontendBuilder
+    {
+        const string Root = "Assets/Metin2/Frontend";
+        const string ArtRoot = Root + "/Art";
+        const string BackgroundRoot = ArtRoot + "/Backgrounds";
+        const string CharacterRoot = ArtRoot + "/Characters";
+        const string ConfigPath = Root + "/Metin2FrontendConfig.asset";
+        const string SceneFolder = Root + "/Scenes";
+        const string ScenePath = SceneFolder + "/Metin2_Intro.unity";
+        const string ReportPath = "Assets/Metin2/Generated/FrontendBuildReport.txt";
+
+        static readonly string[] RaceFolders =
+        {
+            "warrior_m", "warrior_w",
+            "assassin_m", "assassin_w",
+            "sura_m", "sura_w",
+            "shaman_m", "shaman_w",
+        };
+
+        [MenuItem("Tools/Metin2/Build Login Flow", priority = 20)]
+        public static void Build()
+        {
+            BuildInternal(true);
+        }
+
+        [MenuItem("Tools/Metin2/Open Login Flow", priority = 21)]
+        public static void Open()
+        {
+            if (!File.Exists(ScenePath)) BuildInternal(false);
+            EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+        }
+
+        [MenuItem("Tools/Metin2/Reset Local Login Data", priority = 22)]
+        public static void ResetLocalData()
+        {
+            PlayerPrefs.DeleteKey("Metin2.Frontend.Save.v1");
+            PlayerPrefs.Save();
+            Debug.Log("[Metin2 Frontend] Local account, empire and character slots were reset.");
+        }
+
+        public static void BuildFromCommandLine()
+        {
+            BuildInternal(false);
+        }
+
+        public static void BuildPreviewPlayerFromCommandLine()
+        {
+            BuildInternal(false);
+            string output = Path.GetFullPath("Builds/FrontendPreview/Metin2Frontend.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(output) ?? string.Empty);
+            BuildPlayerOptions options = new BuildPlayerOptions
+            {
+                scenes = new[] { ScenePath },
+                locationPathName = output,
+                target = BuildTarget.StandaloneWindows64,
+                options = BuildOptions.Development,
+            };
+            UnityEditor.Build.Reporting.BuildReport report = BuildPipeline.BuildPlayer(options);
+            if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
+                throw new InvalidOperationException("Frontend preview build failed: " + report.summary.result);
+            Debug.Log("[Metin2 Frontend] Preview player built: " + output);
+        }
+
+        static void BuildInternal(bool showDialog)
+        {
+            EnsureFolder(Root);
+            EnsureFolder(SceneFolder);
+            EnsureFolder("Assets/Metin2/Generated");
+            List<string> missing = new List<string>();
+
+            ImportFrontendArt();
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+
+            Metin2FrontendConfig config = AssetDatabase.LoadAssetAtPath<Metin2FrontendConfig>(ConfigPath);
+            if (config == null)
+            {
+                config = ScriptableObject.CreateInstance<Metin2FrontendConfig>();
+                AssetDatabase.CreateAsset(config, ConfigPath);
+            }
+
+            config.loginBackground = Load<Texture2D>(BackgroundRoot + "/login.jpg", missing);
+            config.serverBackground = Load<Texture2D>(BackgroundRoot + "/serverlist.jpg", missing);
+            config.selectionBackground = Load<Texture2D>(BackgroundRoot + "/select.jpg", missing);
+            config.loadingBackgrounds = new Texture2D[4];
+            for (int i = 0; i < config.loadingBackgrounds.Length; i++)
+                config.loadingBackgrounds[i] = Load<Texture2D>(BackgroundRoot + "/loading" + i + ".jpg", missing);
+            config.previewShader = Load<Shader>(Root + "/Runtime/Metin2CharacterPreviewUnlit.shader", missing);
+
+            config.racePrefabs = new GameObject[RaceFolders.Length];
+            config.hairPrefabs = new GameObject[RaceFolders.Length];
+            config.bodyTextures = new Texture2D[RaceFolders.Length];
+            config.faceTextures = new Texture2D[RaceFolders.Length];
+            config.hairTextures = new Texture2D[RaceFolders.Length];
+            for (int i = 0; i < RaceFolders.Length; i++)
+            {
+                string race = RaceFolders[i];
+                string raceFolder = CharacterRoot + "/" + race;
+                string className = race.Substring(0, race.LastIndexOf('_'));
+                config.racePrefabs[i] = Load<GameObject>(raceFolder + "/" + race + ".fbx", missing);
+                config.hairPrefabs[i] = Load<GameObject>(raceFolder + "/" + race + "_hair.fbx", missing);
+                config.bodyTextures[i] = Load<Texture2D>(raceFolder + "/" + BodyTexture(className), missing);
+                config.faceTextures[i] = Load<Texture2D>(raceFolder + "/" + className + "_face.png", missing);
+                config.hairTextures[i] = Load<Texture2D>(raceFolder + "/" + HairTexture(className), missing);
+            }
+            EditorUtility.SetDirty(config);
+            AssetDatabase.SaveAssets();
+
+            Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            scene.name = "Metin2_Intro";
+            GameObject root = new GameObject("Metin2 Frontend");
+            Metin2FrontendController controller = root.AddComponent<Metin2FrontendController>();
+            controller.Configure(config);
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene, ScenePath);
+
+            UpdateBuildSettings();
+            WriteReport(config, missing);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            SceneAsset sceneAsset = AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath);
+            Selection.activeObject = sceneAsset;
+            EditorGUIUtility.PingObject(sceneAsset);
+            Debug.Log("[Metin2 Frontend] Login flow built: " + ScenePath + ". Missing references: " + missing.Count);
+
+            if (showDialog && !Application.isBatchMode)
+            {
+                string message = missing.Count == 0
+                    ? "Giriş, imparatorluk, karakter seçme, karakter oluşturma ve yükleme akışı hazır."
+                    : "Akış hazır; " + missing.Count + " eksik kaynak rapora yazıldı.";
+                EditorUtility.DisplayDialog("Metin2 Frontend", message + "\n\n" + ReportPath, "Tamam");
+            }
+        }
+
+        static void ImportFrontendArt()
+        {
+            foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { BackgroundRoot, CharacterRoot }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+                if (importer == null) continue;
+                bool background = path.StartsWith(BackgroundRoot, StringComparison.OrdinalIgnoreCase);
+                bool hair = Path.GetFileNameWithoutExtension(path).IndexOf("hair", StringComparison.OrdinalIgnoreCase) >= 0;
+                importer.textureType = TextureImporterType.Default;
+                importer.sRGBTexture = true;
+                importer.mipmapEnabled = !background;
+                importer.alphaIsTransparency = hair;
+                importer.wrapMode = background ? TextureWrapMode.Clamp : TextureWrapMode.Repeat;
+                importer.filterMode = FilterMode.Bilinear;
+                importer.maxTextureSize = background ? 2048 : 1024;
+                importer.textureCompression = TextureImporterCompression.CompressedHQ;
+                importer.SaveAndReimport();
+            }
+
+            foreach (string guid in AssetDatabase.FindAssets("t:Model", new[] { CharacterRoot }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                ModelImporter importer = AssetImporter.GetAtPath(path) as ModelImporter;
+                if (importer == null) continue;
+                importer.importAnimation = false;
+                importer.materialImportMode = ModelImporterMaterialImportMode.ImportStandard;
+                importer.isReadable = false;
+                importer.materialSearch = ModelImporterMaterialSearch.Local;
+                importer.SaveAndReimport();
+            }
+
+        }
+
+        static void UpdateBuildSettings()
+        {
+            List<EditorBuildSettingsScene> scenes = EditorBuildSettings.scenes
+                .Where(item => !string.Equals(item.path, ScenePath, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            scenes.Insert(0, new EditorBuildSettingsScene(ScenePath, true));
+
+            foreach (string mapName in new[] { "metin2_map_a1", "metin2_map_b1", "metin2_map_c1" })
+            {
+                string mapPath = AssetDatabase.FindAssets(mapName + " t:Scene")
+                    .Select(AssetDatabase.GUIDToAssetPath)
+                    .FirstOrDefault(path => string.Equals(Path.GetFileNameWithoutExtension(path), mapName, StringComparison.OrdinalIgnoreCase));
+                if (string.IsNullOrWhiteSpace(mapPath) || scenes.Any(item => string.Equals(item.path, mapPath, StringComparison.OrdinalIgnoreCase))) continue;
+                scenes.Add(new EditorBuildSettingsScene(mapPath, true));
+            }
+            EditorBuildSettings.scenes = scenes.ToArray();
+        }
+
+        static void WriteReport(Metin2FrontendConfig config, List<string> missing)
+        {
+            StringBuilder report = new StringBuilder();
+            report.AppendLine("Metin2 Frontend Build Report");
+            report.AppendLine(DateTime.Now.ToString("u"));
+            report.AppendLine();
+            report.AppendLine("Source flow:");
+            report.AppendLine("Login -> Empire -> Character Select -> Character Create -> Loading -> Empire Map");
+            report.AppendLine();
+            report.AppendLine("Backgrounds: " + Count(config.loadingBackgrounds.Cast<UnityEngine.Object>().Concat(new UnityEngine.Object[]
+            {
+                config.loginBackground, config.serverBackground, config.selectionBackground,
+            })) + "/7");
+            report.AppendLine("Race previews: " + Count(config.racePrefabs.Cast<UnityEngine.Object>()) + "/8");
+            report.AppendLine("Hair previews: " + Count(config.hairPrefabs.Cast<UnityEngine.Object>()) + "/8");
+            report.AppendLine("Body textures: " + Count(config.bodyTextures.Cast<UnityEngine.Object>()) + "/8");
+            report.AppendLine("Face textures: " + Count(config.faceTextures.Cast<UnityEngine.Object>()) + "/8");
+            report.AppendLine("Hair textures: " + Count(config.hairTextures.Cast<UnityEngine.Object>()) + "/8");
+            report.AppendLine();
+            report.AppendLine("Missing references:");
+            if (missing.Count == 0) report.AppendLine("- none");
+            else foreach (string item in missing.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(item => item)) report.AppendLine("- " + item);
+
+            string absolute = Path.GetFullPath(ReportPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(absolute) ?? string.Empty);
+            File.WriteAllText(absolute, report.ToString(), Encoding.UTF8);
+        }
+
+        static int Count(IEnumerable<UnityEngine.Object> objects)
+        {
+            return objects.Count(item => item != null);
+        }
+
+        static string BodyTexture(string className)
+        {
+            switch (className)
+            {
+                case "warrior": return "warrior_novice_red.png";
+                case "assassin": return "assassin_novice_green.png";
+                case "sura": return "sura_novice_red.png";
+                case "shaman": return "shaman_novice_green.png";
+                default: return className + "_novice.png";
+            }
+        }
+
+        static string HairTexture(string className)
+        {
+            return className + "_hair_01.png";
+        }
+
+        static T Load<T>(string path, List<string> missing) where T : UnityEngine.Object
+        {
+            T asset = AssetDatabase.LoadAssetAtPath<T>(path);
+            if (asset == null) missing.Add(path);
+            return asset;
+        }
+
+        static void EnsureFolder(string path)
+        {
+            string[] parts = path.Split('/');
+            string current = parts[0];
+            for (int i = 1; i < parts.Length; i++)
+            {
+                string next = current + "/" + parts[i];
+                if (!AssetDatabase.IsValidFolder(next)) AssetDatabase.CreateFolder(current, parts[i]);
+                current = next;
+            }
+        }
+    }
+}
