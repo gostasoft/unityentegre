@@ -262,50 +262,45 @@ namespace Metin2Dev.Frontend
             selectedSlot = Mathf.Clamp(selectedSlot, 0, 3);
             Metin2CharacterData selected = saveData.characters[selectedSlot];
 
-            RectTransform panel = CreatePanel(root, "Character Information", new Vector2(58f, -150f), new Vector2(292f, 475f));
-            CreateText(panel, "KARAKTER SEÇİMİ", 20, FontStyle.Bold, TextAnchor.MiddleCenter,
-                new Vector2(14f, -14f), new Vector2(264f, 34f), new Color(0.96f, 0.77f, 0.37f));
-            CreateText(panel, EmpireNames[(int)saveData.empire] + " İmparatorluğu", 14, FontStyle.Bold, TextAnchor.MiddleCenter,
-                new Vector2(24f, -51f), new Vector2(244f, 24f), EmpireColors[(int)saveData.empire]);
+            RectTransform infoStrip = CreatePanel(root, "Character Information", new Vector2(24f, 126f), new Vector2(976f, 58f),
+                new Color(0.025f, 0.025f, 0.03f, 0.94f));
+            AnchorBottomLeft(infoStrip);
+            Text status = CreateText(infoStrip, string.Empty, 11, FontStyle.Normal, TextAnchor.MiddleCenter,
+                new Vector2(704f, -35f), new Vector2(254f, 18f), new Color(0.96f, 0.72f, 0.46f));
 
-            Text status;
-            if (selected != null)
-            {
-                CreateText(panel, selected.characterName, 25, FontStyle.Bold, TextAnchor.MiddleCenter,
-                    new Vector2(16f, -88f), new Vector2(260f, 42f), Color.white);
-                CreateInfoRow(panel, "Sınıf", ClassNames[(int)selected.characterClass], 139f);
-                CreateInfoRow(panel, "Seviye", selected.level.ToString(), 169f);
-                CreateInfoRow(panel, "Oynama", FormatPlayTime(selected.playMinutes), 199f);
-                CreateStat(panel, "HP", selected.vitality, 241f, new Color(0.70f, 0.14f, 0.10f));
-                CreateStat(panel, "SP", selected.intelligence, 274f, new Color(0.65f, 0.26f, 0.68f));
-                CreateStat(panel, "STR", selected.strength, 307f, new Color(0.75f, 0.43f, 0.10f));
-                CreateStat(panel, "DEX", selected.dexterity, 340f, new Color(0.12f, 0.42f, 0.78f));
-            }
-            else
-            {
-                CreateText(panel, "BOŞ KARAKTER YUVASI", 20, FontStyle.Bold, TextAnchor.MiddleCenter,
-                    new Vector2(22f, -102f), new Vector2(248f, 58f), new Color(0.86f, 0.78f, 0.62f));
-                CreateText(panel, "Bu yuvada henüz bir karakter yok. Yeni bir karakter oluşturabilirsin.", 15, FontStyle.Normal, TextAnchor.UpperCenter,
-                    new Vector2(34f, -178f), new Vector2(224f, 100f), new Color(0.82f, 0.80f, 0.75f));
-            }
-
-            status = CreateText(panel, string.Empty, 12, FontStyle.Normal, TextAnchor.MiddleCenter,
-                new Vector2(20f, -375f), new Vector2(252f, 25f), new Color(0.96f, 0.72f, 0.46f));
             Text primaryLabel;
-            Button primary = CreateButton(panel, selected != null ? "Oyuna Başla" : "Karakter Oluştur",
-                new Vector2(24f, -407f), new Vector2(244f, 36f), out primaryLabel, true);
+            Button primary = CreateButton(infoStrip, selected != null ? "Oyuna Başla" : "Karakter Oluştur",
+                new Vector2(10f, -11f), new Vector2(148f, 36f), out primaryLabel, true);
             primary.onClick.AddListener(() =>
             {
                 if (saveData.characters[selectedSlot] == null) BeginCreate(selectedSlot);
                 else ShowLoading(saveData.characters[selectedSlot]);
             });
 
+            if (selected != null)
+            {
+                CreateText(infoStrip, selected.characterName, 18, FontStyle.Bold, TextAnchor.MiddleLeft,
+                    new Vector2(174f, -5f), new Vector2(146f, 25f), Color.white);
+                CreateText(infoStrip, EmpireNames[(int)saveData.empire], 10, FontStyle.Bold, TextAnchor.MiddleLeft,
+                    new Vector2(174f, -30f), new Vector2(146f, 17f), EmpireColors[(int)saveData.empire]);
+                CreateCompactInfo(infoStrip, "Sınıf", ClassNames[(int)selected.characterClass], 330f, 120f);
+                CreateCompactInfo(infoStrip, "Seviye", selected.level.ToString(), 450f, 86f);
+                CreateCompactInfo(infoStrip, "Oynama", FormatPlayTime(selected.playMinutes), 536f, 128f);
+            }
+            else
+            {
+                CreateText(infoStrip, "BOŞ KARAKTER YUVASI", 16, FontStyle.Bold, TextAnchor.MiddleLeft,
+                    new Vector2(174f, -6f), new Vector2(210f, 24f), new Color(0.86f, 0.78f, 0.62f));
+                CreateText(infoStrip, "Yeni bir karakter oluşturabilirsin.", 11, FontStyle.Normal, TextAnchor.MiddleLeft,
+                    new Vector2(174f, -31f), new Vector2(300f, 17f), new Color(0.82f, 0.80f, 0.75f));
+            }
+
             Text createLabel;
-            Button create = CreateButton(panel, "Yeni", new Vector2(24f, -449f), new Vector2(75f, 30f), out createLabel);
+            Button create = CreateButton(infoStrip, "Yeni", new Vector2(704f, -7f), new Vector2(78f, 25f), out createLabel);
             Text deleteLabel;
-            Button delete = CreateButton(panel, "Sil", new Vector2(108f, -449f), new Vector2(75f, 30f), out deleteLabel);
+            Button delete = CreateButton(infoStrip, "Sil", new Vector2(790f, -7f), new Vector2(78f, 25f), out deleteLabel);
             Text exitLabel;
-            Button exit = CreateButton(panel, "Geri", new Vector2(192f, -449f), new Vector2(75f, 30f), out exitLabel);
+            Button exit = CreateButton(infoStrip, "Geri", new Vector2(876f, -7f), new Vector2(78f, 25f), out exitLabel);
             create.onClick.AddListener(() =>
             {
                 int empty = Array.FindIndex(saveData.characters, item => item == null);
@@ -317,12 +312,16 @@ namespace Metin2Dev.Frontend
             exit.onClick.AddListener(ShowLogin);
 
             RectTransform previewRect = CreateRect(root, "Character Preview", new Vector2(0f, 1f), new Vector2(0f, 1f),
-                new Vector2(0f, 1f), new Vector2(390f, -125f), new Vector2(560f, 560f));
+                new Vector2(0f, 1f), new Vector2(355f, -35f), new Vector2(610f, 500f));
             RawImage rawImage = previewRect.gameObject.AddComponent<RawImage>();
             rawImage.raycastTarget = false;
             Metin2CharacterPreview preview = previewRect.gameObject.AddComponent<Metin2CharacterPreview>();
             preview.Initialize(rawImage);
             if (selected != null) preview.Show(config, selected.characterClass, selected.gender);
+
+            RectTransform slotStrip = CreatePanel(root, "Character Slots", new Vector2(24f, 68f), new Vector2(976f, 52f),
+                new Color(0.025f, 0.025f, 0.03f, 0.92f));
+            AnchorBottomLeft(slotStrip);
 
             for (int slot = 0; slot < 4; slot++)
             {
@@ -330,12 +329,14 @@ namespace Metin2Dev.Frontend
                 Metin2CharacterData data = saveData.characters[slot];
                 string text = data != null ? data.characterName + "\nSv. " + data.level : "Boş Yuva";
                 Text slotLabel;
-                Button slotButton = CreateButton(root, text, new Vector2(372f + slot * 146f, 28f), new Vector2(136f, 54f), out slotLabel,
+                Button slotButton = CreateButton(slotStrip, text, new Vector2(10f + slot * 241f, -6f), new Vector2(232f, 40f), out slotLabel,
                     slot == selectedSlot);
-                AnchorBottomLeft(slotButton.GetComponent<RectTransform>());
                 slotLabel.fontSize = data != null ? 14 : 13;
                 slotButton.onClick.AddListener(() => { selectedSlot = captured; ShowCharacterSelection(); });
             }
+            CreateStatsStrip(root, selected != null ? selected.vitality : 0, selected != null ? selected.intelligence : 0,
+                selected != null ? selected.strength : 0, selected != null ? selected.dexterity : 0);
+            previewRect.SetAsFirstSibling();
 
             Text empireLabel;
             Button changeEmpire = CreateButton(root, "İmparatorluk", new Vector2(30f, -36f), new Vector2(130f, 34f), out empireLabel);
@@ -354,7 +355,7 @@ namespace Metin2Dev.Frontend
         void ShowCharacterCreation()
         {
             RectTransform root = BeginScreen("Character Creation", config.selectionBackground);
-            RectTransform panel = CreatePanel(root, "Creation Panel", new Vector2(52f, -126f), new Vector2(330f, 558f));
+            RectTransform panel = CreatePanel(root, "Creation Panel", new Vector2(52f, -126f), new Vector2(330f, 410f));
             CreateText(panel, "KARAKTER OLUŞTUR", 21, FontStyle.Bold, TextAnchor.MiddleCenter,
                 new Vector2(16f, -14f), new Vector2(298f, 36f), new Color(0.97f, 0.78f, 0.38f));
 
@@ -363,31 +364,26 @@ namespace Metin2Dev.Frontend
             CreateText(panel, ClassDescriptions[(int)draftClass], 14, FontStyle.Normal, TextAnchor.UpperCenter,
                 new Vector2(28f, -107f), new Vector2(274f, 76f), new Color(0.86f, 0.83f, 0.77f));
 
-            CreateStat(panel, "HP", StartingStats[(int)draftClass, 0], 194f, new Color(0.70f, 0.14f, 0.10f));
-            CreateStat(panel, "SP", StartingStats[(int)draftClass, 1], 228f, new Color(0.65f, 0.26f, 0.68f));
-            CreateStat(panel, "STR", StartingStats[(int)draftClass, 2], 262f, new Color(0.75f, 0.43f, 0.10f));
-            CreateStat(panel, "DEX", StartingStats[(int)draftClass, 3], 296f, new Color(0.12f, 0.42f, 0.78f));
-
             CreateText(panel, "Cinsiyet", 13, FontStyle.Bold, TextAnchor.MiddleLeft,
-                new Vector2(25f, -344f), new Vector2(80f, 28f), new Color(0.83f, 0.79f, 0.70f));
+                new Vector2(25f, -194f), new Vector2(80f, 28f), new Color(0.83f, 0.79f, 0.70f));
             Text maleLabel;
-            Button male = CreateButton(panel, "Erkek", new Vector2(105f, -343f), new Vector2(92f, 30f), out maleLabel, draftGender == Metin2Gender.Male);
+            Button male = CreateButton(panel, "Erkek", new Vector2(105f, -193f), new Vector2(92f, 30f), out maleLabel, draftGender == Metin2Gender.Male);
             Text femaleLabel;
-            Button female = CreateButton(panel, "Kadın", new Vector2(207f, -343f), new Vector2(92f, 30f), out femaleLabel, draftGender == Metin2Gender.Female);
+            Button female = CreateButton(panel, "Kadın", new Vector2(207f, -193f), new Vector2(92f, 30f), out femaleLabel, draftGender == Metin2Gender.Female);
             male.onClick.AddListener(() => { draftGender = Metin2Gender.Male; ShowCharacterCreation(); });
             female.onClick.AddListener(() => { draftGender = Metin2Gender.Female; ShowCharacterCreation(); });
 
-            InputField nameInput = CreateInput(panel, "Karakter adı", false, new Vector2(25f, -390f), new Vector2(274f, 36f));
+            InputField nameInput = CreateInput(panel, "Karakter adı", false, new Vector2(25f, -240f), new Vector2(274f, 36f));
             nameInput.characterLimit = 12;
             nameInput.text = draftName;
             nameInput.onValueChanged.AddListener(value => draftName = value);
             Text status = CreateText(panel, string.Empty, 12, FontStyle.Normal, TextAnchor.MiddleCenter,
-                new Vector2(24f, -432f), new Vector2(282f, 28f), new Color(0.96f, 0.72f, 0.46f));
+                new Vector2(24f, -282f), new Vector2(282f, 28f), new Color(0.96f, 0.72f, 0.46f));
 
             Text createLabel;
-            Button create = CreateButton(panel, "Oluştur", new Vector2(25f, -468f), new Vector2(178f, 38f), out createLabel, true);
+            Button create = CreateButton(panel, "Oluştur", new Vector2(25f, -318f), new Vector2(178f, 38f), out createLabel, true);
             Text backLabel;
-            Button back = CreateButton(panel, "Geri", new Vector2(211f, -468f), new Vector2(88f, 38f), out backLabel);
+            Button back = CreateButton(panel, "Geri", new Vector2(211f, -318f), new Vector2(88f, 38f), out backLabel);
             create.onClick.AddListener(() =>
             {
                 string candidate = draftName.Trim();
@@ -419,23 +415,28 @@ namespace Metin2Dev.Frontend
             });
             back.onClick.AddListener(ShowCharacterSelection);
 
-            for (int index = 0; index < ClassNames.Length; index++)
-            {
-                int captured = index;
-                Text classLabel;
-                Button classButton = CreateButton(root, ClassNames[index], new Vector2(408f + index * 145f, 34f), new Vector2(136f, 46f), out classLabel,
-                    index == (int)draftClass);
-                AnchorBottomLeft(classButton.GetComponent<RectTransform>());
-                classButton.onClick.AddListener(() => { draftClass = (Metin2CharacterClass)captured; ShowCharacterCreation(); });
-            }
-
             RectTransform previewRect = CreateRect(root, "Creation Preview", new Vector2(0f, 1f), new Vector2(0f, 1f),
-                new Vector2(0f, 1f), new Vector2(390f, -105f), new Vector2(590f, 585f));
+                new Vector2(0f, 1f), new Vector2(355f, -30f), new Vector2(610f, 495f));
             RawImage rawImage = previewRect.gameObject.AddComponent<RawImage>();
             rawImage.raycastTarget = false;
             Metin2CharacterPreview preview = previewRect.gameObject.AddComponent<Metin2CharacterPreview>();
             preview.Initialize(rawImage);
             preview.Show(config, draftClass, draftGender);
+
+            RectTransform classStrip = CreatePanel(root, "Character Classes", new Vector2(390f, 94f), new Vector2(610f, 68f),
+                new Color(0.025f, 0.025f, 0.03f, 0.92f));
+            AnchorBottomLeft(classStrip);
+            for (int index = 0; index < ClassNames.Length; index++)
+            {
+                int captured = index;
+                Text classLabel;
+                Button classButton = CreateButton(classStrip, ClassNames[index], new Vector2(13f + index * 148f, -10f),
+                    new Vector2(140f, 46f), out classLabel, index == (int)draftClass);
+                classButton.onClick.AddListener(() => { draftClass = (Metin2CharacterClass)captured; ShowCharacterCreation(); });
+            }
+            CreateStatsStrip(root, StartingStats[(int)draftClass, 0], StartingStats[(int)draftClass, 1],
+                StartingStats[(int)draftClass, 2], StartingStats[(int)draftClass, 3]);
+            previewRect.SetAsFirstSibling();
         }
 
         void ShowDeleteConfirmation(int slot)
@@ -564,6 +565,14 @@ namespace Metin2Dev.Frontend
                 new Vector2(116f, -y), new Vector2(148f, 25f), Color.white);
         }
 
+        void CreateCompactInfo(RectTransform panel, string label, string value, float x, float width)
+        {
+            CreateText(panel, label, 10, FontStyle.Bold, TextAnchor.MiddleLeft,
+                new Vector2(x, -5f), new Vector2(width, 18f), new Color(0.77f, 0.72f, 0.64f));
+            CreateText(panel, value, 13, FontStyle.Bold, TextAnchor.MiddleLeft,
+                new Vector2(x, -25f), new Vector2(width, 22f), Color.white);
+        }
+
         void CreateStat(RectTransform panel, string label, int value, float y, Color color)
         {
             CreateText(panel, label, 13, FontStyle.Bold, TextAnchor.MiddleLeft,
@@ -579,6 +588,33 @@ namespace Metin2Dev.Frontend
                 new Vector2(244f, -y), new Vector2(24f, 24f), Color.white);
         }
 
+        void CreateStatsStrip(RectTransform root, int vitality, int intelligence, int strength, int dexterity)
+        {
+            RectTransform strip = CreatePanel(root, "Character Stats", new Vector2(24f, 10f), new Vector2(976f, 52f),
+                new Color(0.025f, 0.025f, 0.03f, 0.94f));
+            AnchorBottomLeft(strip);
+            CreateHorizontalStat(strip, "HP", vitality, 8f, new Color(0.70f, 0.14f, 0.10f));
+            CreateHorizontalStat(strip, "SP", intelligence, 247f, new Color(0.65f, 0.26f, 0.68f));
+            CreateHorizontalStat(strip, "STR", strength, 486f, new Color(0.75f, 0.43f, 0.10f));
+            CreateHorizontalStat(strip, "DEX", dexterity, 725f, new Color(0.12f, 0.42f, 0.78f));
+        }
+
+        void CreateHorizontalStat(RectTransform panel, string label, int value, float x, Color color)
+        {
+            CreateText(panel, label, 13, FontStyle.Bold, TextAnchor.MiddleLeft,
+                new Vector2(x + 8f, -5f), new Vector2(38f, 20f), new Color(0.80f, 0.77f, 0.70f));
+            Image background = CreateImage(panel, label + " Gauge", null, new Vector2(x + 8f, -31f), new Vector2(214f, 10f),
+                new Color(0.08f, 0.08f, 0.09f, 0.95f));
+            Image fill = CreateImage(background.rectTransform, "Fill", null, Vector2.zero, Vector2.zero, color);
+            fill.rectTransform.anchorMin = Vector2.zero;
+            fill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(value / 8f), 1f);
+            fill.rectTransform.pivot = new Vector2(0f, 0.5f);
+            fill.rectTransform.anchoredPosition = Vector2.zero;
+            fill.rectTransform.sizeDelta = Vector2.zero;
+            CreateText(panel, value.ToString(), 13, FontStyle.Bold, TextAnchor.MiddleRight,
+                new Vector2(x + 198f, -5f), new Vector2(24f, 20f), Color.white);
+        }
+
         RectTransform CreatePanel(Transform parent, string name, Vector2 topLeft, Vector2 size)
         {
             return CreatePanel(parent, name, topLeft, size, new Color(0.025f, 0.025f, 0.03f, 0.86f));
@@ -588,11 +624,34 @@ namespace Metin2Dev.Frontend
         {
             RectTransform rect = CreateRect(parent, name, new Vector2(0f, 1f), new Vector2(0f, 1f),
                 new Vector2(0f, 1f), topLeft, size);
-            Image image = rect.gameObject.AddComponent<Image>();
-            image.color = color;
-            Outline outline = rect.gameObject.AddComponent<Outline>();
-            outline.effectColor = new Color(0.58f, 0.43f, 0.21f, 0.94f);
-            outline.effectDistance = new Vector2(1.5f, -1.5f);
+
+            if (config != null && config.inventoryBoardFrame != null && config.inventoryBoardCenter != null)
+            {
+                RectTransform centerRect = CreateRect(rect, "Original Board Center", Vector2.zero, Vector2.one,
+                    new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+                Image center = centerRect.gameObject.AddComponent<Image>();
+                center.sprite = config.inventoryBoardCenter;
+                center.type = Image.Type.Tiled;
+                center.color = Color.white;
+                center.raycastTarget = false;
+
+                RectTransform frameRect = CreateRect(rect, "Original Inventory Frame", Vector2.zero, Vector2.one,
+                    new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+                Image frame = frameRect.gameObject.AddComponent<Image>();
+                frame.sprite = config.inventoryBoardFrame;
+                frame.type = Image.Type.Sliced;
+                frame.fillCenter = false;
+                frame.color = Color.white;
+                frame.raycastTarget = false;
+            }
+            else
+            {
+                Image image = rect.gameObject.AddComponent<Image>();
+                image.color = color;
+                Outline outline = rect.gameObject.AddComponent<Outline>();
+                outline.effectColor = new Color(0.58f, 0.43f, 0.21f, 0.94f);
+                outline.effectDistance = new Vector2(1.5f, -1.5f);
+            }
             return rect;
         }
 

@@ -67,6 +67,10 @@ namespace Metin2Dev.Frontend
         public Texture2D selectionBackground;
         public Texture2D[] loadingBackgrounds = new Texture2D[4];
 
+        [Header("Original client UI patterns")]
+        public Sprite inventoryBoardFrame;
+        public Sprite inventoryBoardCenter;
+
         [Header("Preview rendering")]
         public Shader previewShader;
 

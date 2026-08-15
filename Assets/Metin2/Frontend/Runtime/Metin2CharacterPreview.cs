@@ -142,7 +142,7 @@ namespace Metin2Dev.Frontend
                 }
             }
             if (!hasBounds) return;
-            float scale = 3.55f / Mathf.Max(0.001f, bounds.size.y);
+            float scale = 2.95f / Mathf.Max(0.001f, bounds.size.y);
             currentModel.transform.localScale = Vector3.one * scale;
             currentModel.transform.localPosition = new Vector3(
                 -bounds.center.x * scale,

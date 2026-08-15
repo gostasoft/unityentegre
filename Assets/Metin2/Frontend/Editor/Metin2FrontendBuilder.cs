@@ -16,6 +16,7 @@ namespace Metin2Dev.Frontend.Editor
         const string ArtRoot = Root + "/Art";
         const string BackgroundRoot = ArtRoot + "/Backgrounds";
         const string CharacterRoot = ArtRoot + "/Characters";
+        const string UiRoot = ArtRoot + "/UI";
         const string ConfigPath = Root + "/Metin2FrontendConfig.asset";
         const string SceneFolder = Root + "/Scenes";
         const string ScenePath = SceneFolder + "/Metin2_Intro.unity";
@@ -96,6 +97,8 @@ namespace Metin2Dev.Frontend.Editor
             config.loadingBackgrounds = new Texture2D[4];
             for (int i = 0; i < config.loadingBackgrounds.Length; i++)
                 config.loadingBackgrounds[i] = Load<Texture2D>(BackgroundRoot + "/loading" + i + ".jpg", missing);
+            config.inventoryBoardFrame = Load<Sprite>(UiRoot + "/inventory_board.png", missing);
+            config.inventoryBoardCenter = Load<Sprite>(UiRoot + "/inventory_board_center.png", missing);
             config.previewShader = Load<Shader>(Root + "/Runtime/Metin2CharacterPreviewUnlit.shader", missing);
 
             config.racePrefabs = new GameObject[RaceFolders.Length];
@@ -146,21 +149,32 @@ namespace Metin2Dev.Frontend.Editor
 
         static void ImportFrontendArt()
         {
-            foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { BackgroundRoot, CharacterRoot }))
+            foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { BackgroundRoot, CharacterRoot, UiRoot }))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
                 if (importer == null) continue;
                 bool background = path.StartsWith(BackgroundRoot, StringComparison.OrdinalIgnoreCase);
+                bool userInterface = path.StartsWith(UiRoot, StringComparison.OrdinalIgnoreCase);
                 bool hair = Path.GetFileNameWithoutExtension(path).IndexOf("hair", StringComparison.OrdinalIgnoreCase) >= 0;
-                importer.textureType = TextureImporterType.Default;
+                importer.textureType = userInterface ? TextureImporterType.Sprite : TextureImporterType.Default;
                 importer.sRGBTexture = true;
-                importer.mipmapEnabled = !background;
-                importer.alphaIsTransparency = hair;
-                importer.wrapMode = background ? TextureWrapMode.Clamp : TextureWrapMode.Repeat;
+                importer.mipmapEnabled = !background && !userInterface;
+                importer.alphaIsTransparency = hair || userInterface;
+                importer.wrapMode = background || (userInterface && path.EndsWith("inventory_board.png", StringComparison.OrdinalIgnoreCase))
+                    ? TextureWrapMode.Clamp
+                    : TextureWrapMode.Repeat;
                 importer.filterMode = FilterMode.Bilinear;
                 importer.maxTextureSize = background ? 2048 : 1024;
-                importer.textureCompression = TextureImporterCompression.CompressedHQ;
+                importer.textureCompression = userInterface ? TextureImporterCompression.Uncompressed : TextureImporterCompression.CompressedHQ;
+                if (userInterface)
+                {
+                    importer.spriteImportMode = SpriteImportMode.Single;
+                    importer.spritePixelsPerUnit = 100f;
+                    importer.spriteBorder = path.EndsWith("inventory_board.png", StringComparison.OrdinalIgnoreCase)
+                        ? new Vector4(32f, 32f, 32f, 32f)
+                        : Vector4.zero;
+                }
                 importer.SaveAndReimport();
             }
 
