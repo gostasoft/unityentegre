@@ -631,9 +631,9 @@ namespace Metin2Dev
                         instance.transform.localScale = Vector3.one;
                         report.SourceScaleBridges++;
                     }
-                    else if (IsWall(property, instance.name))
+                    else if (IsStraightWall(property, instance.name))
                     {
-                        ApplyWallScale(instance.transform);
+                        ApplyStraightWallScale(instance.transform);
                         report.ScaledWalls++;
                     }
                     else
@@ -1373,10 +1373,10 @@ namespace Metin2Dev
             return IsWallOrFenceName(value);
         }
 
-        static bool IsWall(PropertyEntry property, string modelName = null)
+        static bool IsStraightWall(PropertyEntry property, string modelName = null)
         {
             string value = (property?.AssetReference ?? "") + " " + (modelName ?? "");
-            return IsWallName(value);
+            return IsStraightWallName(value);
         }
 
         static bool IsWallName(string value)
@@ -1384,11 +1384,21 @@ namespace Metin2Dev
             return (value ?? "").IndexOf("wall", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        static bool IsStraightWallName(string value)
+        {
+            value = (value ?? "").ToLowerInvariant();
+            if (value.Contains("middledam")) return true;
+            if (!value.Contains("wall")) return false;
+            // Corner, doorway and pillar assets have their own complete footprint and
+            // therefore use the normal uniform building scale shown in the source set.
+            return !value.Contains("corner") && !value.Contains("door") && !value.Contains("pillar");
+        }
+
         static bool IsWallOrFenceName(string value)
         {
             value = (value ?? "").ToLowerInvariant();
             return value.Contains("wall") || value.Contains("fence") || value.Contains("palisade")
-                || value.Contains("barricade") || value.Contains("rail");
+                || value.Contains("barricade") || value.Contains("rail") || value.Contains("middledam");
         }
 
         static bool IsBridge(PropertyEntry property, string modelName = null)
@@ -1417,9 +1427,9 @@ namespace Metin2Dev
                     ApplyModelScale(model, 1f);
                     bridgesReset++;
                 }
-                else if (IsWallName(ModelIdentity(model)))
+                else if (IsStraightWallName(ModelIdentity(model)))
                 {
-                    ApplyWallScale(model);
+                    ApplyStraightWallScale(model);
                     wallsAdjusted++;
                 }
                 else count += ApplyModelScale(model, BuildingModelScale);
@@ -1431,7 +1441,7 @@ namespace Metin2Dev
             {
                 string identity = ModelIdentity(model);
                 if (model == null || !IsWallOrFenceName(identity) || IsBridgeName(identity)) continue;
-                if (IsWallName(identity)) { ApplyWallScale(model); wallsAdjusted++; }
+                if (IsStraightWallName(identity)) { ApplyStraightWallScale(model); wallsAdjusted++; }
                 else count += ApplyModelScale(model, BuildingModelScale);
             }
             return count;
@@ -1467,40 +1477,16 @@ namespace Metin2Dev
             return 1;
         }
 
-        static int ApplyWallScale(Transform model)
+        static int ApplyStraightWallScale(Transform model)
         {
             Vector3 sourcePosition = model.localPosition;
             Quaternion sourceRotation = model.localRotation;
-            Bounds bounds = LocalModelBounds(model);
-            // Preserve the wall run axis so adjacent source placements still meet without
-            // overlapping. Only thickness and height receive the requested 1.5 factor.
-            model.localScale = bounds.size.x >= bounds.size.z
-                ? new Vector3(1f, BuildingModelScale, BuildingModelScale)
-                : new Vector3(BuildingModelScale, BuildingModelScale, 1f);
+            // Metin2's straight wall and middledam FBX roots use local X as the run axis.
+            // Keep it at source length; the exact Y/Z values match the verified Inspector.
+            model.localScale = new Vector3(1f, BuildingModelScale, BuildingModelScale);
             if ((model.localPosition - sourcePosition).sqrMagnitude > 0.000001f || Quaternion.Angle(model.localRotation, sourceRotation) > 0.0001f)
                 throw new InvalidOperationException("Wall scale changed source placement: " + model.name);
             return 1;
-        }
-
-        static Bounds LocalModelBounds(Transform model)
-        {
-            bool found = false;
-            Bounds result = new Bounds(Vector3.zero, Vector3.zero);
-            Matrix4x4 worldToModel = model.worldToLocalMatrix;
-            foreach (MeshFilter filter in model.GetComponentsInChildren<MeshFilter>(true))
-            {
-                if (filter.sharedMesh == null) continue;
-                Bounds meshBounds = filter.sharedMesh.bounds;
-                Matrix4x4 meshToModel = worldToModel * filter.transform.localToWorldMatrix;
-                Vector3 min = meshBounds.min, max = meshBounds.max;
-                for (int x = 0; x < 2; x++) for (int y = 0; y < 2; y++) for (int z = 0; z < 2; z++)
-                {
-                    Vector3 point = meshToModel.MultiplyPoint3x4(new Vector3(x == 0 ? min.x : max.x, y == 0 ? min.y : max.y, z == 0 ? min.z : max.z));
-                    if (!found) { result = new Bounds(point, Vector3.zero); found = true; }
-                    else result.Encapsulate(point);
-                }
-            }
-            return found ? result : new Bounds(Vector3.zero, Vector3.one);
         }
 
         static void SetupEnvironment(GameObject root)
