@@ -498,6 +498,7 @@ namespace Metin2Dev.Frontend
 
         IEnumerator LoadGame(Metin2CharacterData character, Text status, RectTransform fill, RectTransform footer)
         {
+            Metin2Dev.Gameplay.Metin2GameplaySession.Select(character, saveData.empire);
             string sceneName = config.GetScene(saveData.empire);
             float displayed = 0f;
             float warmup = 0f;

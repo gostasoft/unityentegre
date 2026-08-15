@@ -82,6 +82,41 @@ namespace Metin2Dev
             if (asset != null) AssetDatabase.OpenAsset(asset); else Debug.LogWarning("No Metin2 import report exists yet.");
         }
 
+        public static Dictionary<string, GameObject> BuildGameplayEffectPrefabs(IEnumerable<string> references, string prefabFolder)
+        {
+            Dictionary<string, GameObject> result = new Dictionary<string, GameObject>(StringComparer.OrdinalIgnoreCase);
+            string project = Directory.GetParent(Application.dataPath).FullName;
+            List<string> all = FindRoots(project).SelectMany(SafeFiles).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            FileIndex effects = new FileIndex(all.Where(IsEffectFile), ".mse");
+            FileIndex textures = new FileIndex(all.Where(path => ImageExtensions.Contains(Path.GetExtension(path).ToLowerInvariant())), ".png");
+            Report report = new Report();
+            Folders(prefabFolder);
+            ImportedAssets.Clear();
+            ImportedEffectPrefabs.Clear();
+            foreach (string reference in references.Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                string msePath = ResolveSourceReference(reference, null, effects);
+                if (msePath == null) { report.Missing.Add("Gameplay effect | " + reference); continue; }
+                MseEffect definition;
+                try { definition = ParseMse(msePath); }
+                catch (Exception exception) { report.Warnings.Add("Gameplay effect parse | " + reference + " | " + exception.Message); continue; }
+                GameObject prototype = new GameObject(Clean(Path.GetFileNameWithoutExtension(msePath)));
+                int created = 0;
+                foreach (MseMesh mesh in definition.Meshes) created += BuildEffectMesh(mesh, msePath, effects, textures, prototype, report);
+                for (int i = 0; i < definition.Particles.Count; i++)
+                    if (BuildEffectParticles(definition.Particles[i], msePath, textures, prototype, i, report)) created++;
+                if (created == 0) { UnityEngine.Object.DestroyImmediate(prototype); continue; }
+                string prefabPath = prefabFolder + "/" + Clean(Path.GetFileNameWithoutExtension(msePath)) + "_" + Hash(msePath) + ".prefab";
+                if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null) AssetDatabase.DeleteAsset(prefabPath);
+                GameObject prefab = PrefabUtility.SaveAsPrefabAsset(prototype, prefabPath);
+                UnityEngine.Object.DestroyImmediate(prototype);
+                result[reference] = prefab;
+            }
+            if (report.Missing.Count > 0 || report.Warnings.Count > 0)
+                Debug.LogWarning($"[Metin2Player] Skill effects: {result.Count} built, {report.Missing.Count} missing, {report.Warnings.Count} warnings.");
+            return result;
+        }
+
         [MenuItem("Tools/Metin2/Upgrade Generated Scenes", priority = 102)]
         public static void UpgradeGeneratedScenes()
         {

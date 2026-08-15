@@ -40,3 +40,8 @@ sysinfo.txt
 /Assets/Metin2/Raw/
 /Assets/Metin2/Raw.meta
 /Metin2,5/Extracted/
+
+# Rebuilt locally from Metin2,5/PlayerConverted by the gameplay builder
+/Assets/Metin2/Gameplay/Generated/
+/Assets/Metin2/Gameplay/Generated.meta
+/Metin2,5/PlayerConverted/
