@@ -20,6 +20,7 @@ namespace Metin2Dev
         const string Output = "Assets/Metin2/Generated";
         const string Raw = "Assets/Metin2/Raw";
         const float MetinUnitsPerUnityUnit = 100f;
+        const float BuildingModelScale = 1.5f;
         const float TerrainTextureTileSize = 20f;
         const string EnvironmentProfilePath = Output + "/Metin2Environment.asset";
         const string SkyboxMaterialPath = Output + "/Metin2Skybox.mat";
@@ -90,7 +91,7 @@ namespace Metin2Dev
                 .Select(AssetDatabase.GUIDToAssetPath).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
             Report effectReport = new Report();
             LoadEffectSources(out Dictionary<string, PropertyEntry> properties, out FileIndex effects, out FileIndex textures, out Dictionary<string, MapSource> maps, effectReport);
-            int upgraded = 0, collidersAdded = 0;
+            int upgraded = 0, collidersAdded = 0, buildingsScaled = 0;
             try
             {
                 Folders(Output);
@@ -102,6 +103,7 @@ namespace Metin2Dev
                     GameObject root = scene.GetRootGameObjects().FirstOrDefault();
                     if (root == null) continue;
                     if (maps.TryGetValue(scene.name, out MapSource map)) RebuildMapEffects(map, root, properties, effects, textures, effectReport);
+                    buildingsScaled += ApplyBuildingScale(root);
                     collidersAdded += EnsureMapColliders(root);
                     SetupEnvironment(root);
                     SetupPreviewCamera(root);
@@ -111,7 +113,7 @@ namespace Metin2Dev
                 }
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
-                Debug.Log($"Metin2 scene upgrade finished: {upgraded} scenes, {collidersAdded} collider components added, {effectReport.PlacedEffects} source effects placed.");
+                Debug.Log($"Metin2 scene upgrade finished: {upgraded} scenes, {buildingsScaled} building models set to {BuildingModelScale:0.0} scale, {collidersAdded} collider components added, {effectReport.PlacedEffects} source effects placed.");
             }
             finally
             {
@@ -135,13 +137,57 @@ namespace Metin2Dev
             LoadEffectSources(out Dictionary<string, PropertyEntry> properties, out FileIndex effects, out FileIndex textures, out Dictionary<string, MapSource> maps, effectReport);
             ImportedAssets.Clear(); ImportedEffectPrefabs.Clear();
             if (maps.TryGetValue(scene.name, out MapSource map)) RebuildMapEffects(map, root, properties, effects, textures, effectReport);
+            int buildingsScaled = ApplyBuildingScale(root);
             int collidersAdded = EnsureMapColliders(root);
             SetupEnvironment(root);
             SetupPreviewCamera(root);
             EditorSceneManager.MarkSceneDirty(scene);
             if (!string.IsNullOrEmpty(scene.path)) EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
-            Debug.Log($"Metin2 current scene upgraded: {scene.name}, {collidersAdded} collider components added, {effectReport.PlacedEffects} source effects placed.");
+            Debug.Log($"Metin2 current scene upgraded: {scene.name}, {buildingsScaled} building models set to {BuildingModelScale:0.0} scale, {collidersAdded} collider components added, {effectReport.PlacedEffects} source effects placed.");
+        }
+
+        [MenuItem("Tools/Metin2/Apply 1.5 Building Scale", priority = 104)]
+        public static void ApplyBuildingScaleToGeneratedScenes()
+        {
+            ApplyBuildingScaleToGeneratedScenesInternal(!Application.isBatchMode);
+        }
+
+        public static void ApplyBuildingScaleFromCommandLine()
+        {
+            ApplyBuildingScaleToGeneratedScenesInternal(false);
+        }
+
+        static void ApplyBuildingScaleToGeneratedScenesInternal(bool askToSave)
+        {
+            if (askToSave && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            string previousScene = SceneManager.GetActiveScene().path;
+            string[] scenePaths = AssetDatabase.FindAssets("t:Scene", new[] { Output + "/Scenes" })
+                .Select(AssetDatabase.GUIDToAssetPath).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+            int scenesUpdated = 0, modelsUpdated = 0;
+            try
+            {
+                for (int i = 0; i < scenePaths.Length; i++)
+                {
+                    EditorUtility.DisplayProgressBar("Metin2 - Apply Building Scale", $"[{i + 1}/{scenePaths.Length}] {Path.GetFileNameWithoutExtension(scenePaths[i])}", i / (float)Math.Max(1, scenePaths.Length));
+                    Scene scene = EditorSceneManager.OpenScene(scenePaths[i], OpenSceneMode.Single);
+                    GameObject root = scene.GetRootGameObjects().FirstOrDefault();
+                    int changed = ApplyBuildingScale(root);
+                    if (changed == 0) continue;
+                    modelsUpdated += changed;
+                    scenesUpdated++;
+                    EditorSceneManager.MarkSceneDirty(scene);
+                    EditorSceneManager.SaveScene(scene, scenePaths[i]);
+                }
+                AssetDatabase.SaveAssets();
+                Debug.Log($"Metin2 building scale applied: {modelsUpdated} individual building roots in {scenesUpdated} scenes set to ({BuildingModelScale:0.0}, {BuildingModelScale:0.0}, {BuildingModelScale:0.0}); map positions unchanged.");
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+                if (!string.IsNullOrEmpty(previousScene) && File.Exists(Path.Combine(Directory.GetParent(Application.dataPath).FullName, previousScene)))
+                    EditorSceneManager.OpenScene(previousScene, OpenSceneMode.Single);
+            }
         }
 
         static void LoadEffectSources(out Dictionary<string, PropertyEntry> properties, out FileIndex effects, out FileIndex textures, out Dictionary<string, MapSource> maps, Report report)
@@ -553,15 +599,37 @@ namespace Metin2Dev
                     PlaceEffect(item, property, effects, textures, effectRoot, report);
                     continue;
                 }
-                string source = models.Resolve(property.AssetReference); if (source == null) { report.Missing.Add(property.AssetReference + " | CRC " + item.Crc); continue; }
+                bool wallOrFence = IsWallOrFence(property);
+                // Linear pieces must never fall back to a similarly named model: lin, lin2,
+                // corner, door and the fence variants each have their own source pivot.
+                string source = wallOrFence ? models.ResolveExact(property.AssetReference) : models.Resolve(property.AssetReference);
+                if (source == null)
+                {
+                    report.Missing.Add((wallOrFence ? "Exact wall/fence model | " : "") + property.AssetReference + " | CRC " + item.Crc);
+                    continue;
+                }
                 string assetPath = CopyModelWithTextures(source, textures, report); GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
                 if (prefab == null) { report.Missing.Add("FBX import failed | " + source); continue; }
                 GameObject instance = PrefabUtility.InstantiatePrefab(prefab) as GameObject; if (instance == null) continue;
-                instance.name = Path.GetFileNameWithoutExtension(source); instance.transform.SetParent(Category(property, instance.name, buildings, trees, rocks, props).transform, false);
+                instance.name = Path.GetFileNameWithoutExtension(source);
+                GameObject category = Category(property, instance.name, buildings, trees, rocks, props);
+                instance.transform.SetParent(category.transform, false);
                 // AreaData positions are already map-wide Metin2 coordinates. The six-digit
                 // parent folder only identifies which terrain sector owns the record.
                 instance.transform.localPosition = new Vector3(item.Position.x / MetinUnitsPerUnityUnit, (item.Position.z + item.HeightBias) / MetinUnitsPerUnityUnit, -item.Position.y / MetinUnitsPerUnityUnit);
                 instance.transform.localRotation = Metin2Rotation(item.Rotation);
+                // Scale each building root around its own source pivot. Scaling the Buildings
+                // parent would also multiply map coordinates and destroy the AreaData layout.
+                if (category == buildings)
+                {
+                    instance.transform.localScale = Vector3.one * BuildingModelScale;
+                    report.ScaledBuildings++;
+                }
+                if (wallOrFence)
+                {
+                    report.WallFencePlacements++;
+                    report.WallFenceModels.Add(property.AssetReference.Replace('\\', '/'));
+                }
                 report.MeshColliders += AddColliders(instance);
                 report.PlacedObjects++;
             }
@@ -1278,8 +1346,53 @@ namespace Metin2Dev
             string value = (property.Type + " " + name).ToLowerInvariant();
             if (value.Contains("tree") || value.Contains("bush") || value.Contains("grass")) return trees;
             if (value.Contains("rock") || value.Contains("stone") || value.Contains("cliff")) return rocks;
-            if (value.Contains("building") || value.Contains("dungeonblock") || value.Contains("house") || value.Contains("bridge") || value.Contains("wall")) return buildings;
+            if (value.Contains("building") || value.Contains("dungeonblock") || value.Contains("house") || value.Contains("bridge") || IsWallOrFenceName(value)) return buildings;
             return props;
+        }
+
+        static bool IsWallOrFence(PropertyEntry property)
+        {
+            string value = ((property?.AssetReference ?? "") + " " + (property?.Type ?? "")).ToLowerInvariant();
+            return IsWallOrFenceName(value);
+        }
+
+        static bool IsWallOrFenceName(string value)
+        {
+            value = (value ?? "").ToLowerInvariant();
+            return value.Contains("wall") || value.Contains("fence") || value.Contains("palisade")
+                || value.Contains("barricade") || value.Contains("rail");
+        }
+
+        static int ApplyBuildingScale(GameObject root)
+        {
+            Transform buildings = root != null ? root.transform.Find("Buildings") : null;
+            if (buildings == null) return 0;
+            buildings.localScale = Vector3.one;
+            int count = 0;
+            for (int i = 0; i < buildings.childCount; i++)
+            {
+                Transform model = buildings.GetChild(i);
+                if (model != null) count += ApplyModelScale(model);
+            }
+            // Older generated scenes could contain fence-like Building properties under
+            // Props. Update only those named source models; ordinary props stay at 1.0.
+            Transform props = root.transform.Find("Props");
+            if (props != null) for (int i = 0; i < props.childCount; i++)
+            {
+                Transform model = props.GetChild(i);
+                if (model != null && IsWallOrFenceName(model.name)) count += ApplyModelScale(model);
+            }
+            return count;
+        }
+
+        static int ApplyModelScale(Transform model)
+        {
+            Vector3 sourcePosition = model.localPosition;
+            Quaternion sourceRotation = model.localRotation;
+            model.localScale = Vector3.one * BuildingModelScale;
+            if ((model.localPosition - sourcePosition).sqrMagnitude > 0.000001f || Quaternion.Angle(model.localRotation, sourceRotation) > 0.0001f)
+                throw new InvalidOperationException("Building scale changed source placement: " + model.name);
+            return 1;
         }
 
         static void SetupEnvironment(GameObject root)
@@ -1523,6 +1636,11 @@ namespace Metin2Dev
                 if (files.TryGetValue(key, out List<string> exact)) return Best(exact, reference);
                 List<string> fuzzy = files.Where(x => x.Key.Contains(key) || key.Contains(x.Key)).SelectMany(x => x.Value).ToList(); return fuzzy.Count == 0 ? null : Best(fuzzy, reference);
             }
+            public string ResolveExact(string reference)
+            {
+                string key = Stem(Path.GetFileNameWithoutExtension((reference ?? "").Replace('\\', '/')));
+                return key.Length > 0 && files.TryGetValue(key, out List<string> exact) ? Best(exact, reference) : null;
+            }
             string Best(IEnumerable<string> candidates, string reference)
             {
                 string normalized = WithoutExtension((reference ?? "").Replace('\\', '/').ToLowerInvariant());
@@ -1576,12 +1694,14 @@ namespace Metin2Dev
         sealed class AreaObject { public string Crc; public Vector3 Position; public Vector3 Rotation; public float HeightBias; }
         sealed class Report
         {
-            public int BuiltMaps, TerrainTiles, WaterTiles, PlacedObjects, PlacedEffects, MeshColliders;
+            public int BuiltMaps, TerrainTiles, WaterTiles, PlacedObjects, PlacedEffects, MeshColliders, ScaledBuildings, WallFencePlacements;
+            public readonly HashSet<string> WallFenceModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             public readonly HashSet<string> Missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase); public readonly HashSet<string> Unsupported = new HashSet<string>(StringComparer.OrdinalIgnoreCase); public readonly List<string> Warnings = new List<string>(); public readonly List<string> Errors = new List<string>();
             public void Save(IEnumerable<string> roots, int maps, int properties, int models, int textures)
             {
                 StringBuilder text = new StringBuilder("Metin2 Map Import Report\n" + DateTime.Now.ToString("u") + "\n\nSources:\n"); foreach (string root in roots) text.AppendLine("- " + root);
-                text.AppendLine($"\nMaps found: {maps}\nMaps built: {BuiltMaps}\nTerrain tiles: {TerrainTiles}\nWater tiles: {WaterTiles}\nObjects placed: {PlacedObjects}\nEffects placed: {PlacedEffects}\nMesh colliders added: {MeshColliders}\nProperties indexed: {properties}\nModels indexed: {models}\nTextures indexed: {textures}\nMissing references: {Missing.Count}\nUnsupported source features: {Unsupported.Count}\n");
+                text.AppendLine($"\nMaps found: {maps}\nMaps built: {BuiltMaps}\nTerrain tiles: {TerrainTiles}\nWater tiles: {WaterTiles}\nObjects placed: {PlacedObjects}\nBuilding models scaled to {BuildingModelScale:0.0}: {ScaledBuildings}\nWall/fence placements: {WallFencePlacements}\nDistinct wall/fence source models: {WallFenceModels.Count}\nEffects placed: {PlacedEffects}\nMesh colliders added: {MeshColliders}\nProperties indexed: {properties}\nModels indexed: {models}\nTextures indexed: {textures}\nMissing references: {Missing.Count}\nUnsupported source features: {Unsupported.Count}\n");
+                text.AppendLine("Wall/fence source models (exact-name matching):"); foreach (string item in WallFenceModels.OrderBy(x => x)) text.AppendLine("- " + item);
                 text.AppendLine("Missing references:"); foreach (string item in Missing.OrderBy(x => x)) text.AppendLine("- " + item);
                 text.AppendLine("\nUnsupported source features:"); foreach (string item in Unsupported.OrderBy(x => x)) text.AppendLine("- " + item);
                 text.AppendLine("\nWarnings:"); foreach (string item in Warnings) text.AppendLine("- " + item); text.AppendLine("\nErrors:"); foreach (string item in Errors) text.AppendLine("- " + item);
