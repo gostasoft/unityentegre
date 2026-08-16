@@ -29,6 +29,7 @@ namespace Metin2Dev.Gameplay
         Image hpFill;
         Image spFill;
         Image staminaFill;
+        RawImage taskbarBase;
         Text hpText;
         Text spText;
         Text characterNameText;
@@ -178,7 +179,9 @@ namespace Metin2Dev.Gameplay
             canvasObject.transform.SetParent(transform, false);
             canvas = canvasObject.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 30000;
+            // The login/character frontend is persistent and uses sorting order 32000.
+            // Gameplay UI must be above its now-transparent canvas so pointer events reach this canvas.
+            canvas.sortingOrder = 40000;
             CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(ReferenceWidth, ReferenceHeight);
@@ -191,10 +194,11 @@ namespace Metin2Dev.Gameplay
             hud = CreateRect(canvas.transform, "TaskBar", new Vector2(0f, 0f), new Vector2(1f, 0f),
                 new Vector2(0.5f, 0f), Vector2.zero, new Vector2(0f, 47f));
 
-            RawImage baseImage = CreateRaw(hud, "TaskBar Base", Texture("taskbar_base"), new Vector2(3.5f, 0f),
-                new Vector2(-519f, 37f), new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f));
-            baseImage.uvRect = new Rect(0f, 0f, (ReferenceWidth - 519f) / 256f, 1f);
-            baseImage.color = Texture("taskbar_base") != null ? Color.white : new Color(0.07f, 0.06f, 0.045f, 0.96f);
+            // ExpandedImageBox keeps the source texture's first 256 px and adds the rendering rect.
+            // taskbar.py therefore spans x=263 all the way to SCREEN_WIDTH, not SCREEN_WIDTH-256.
+            taskbarBase = CreateRaw(hud, "TaskBar Base", Texture("taskbar_base"), new Vector2(131.5f, 0f),
+                new Vector2(-263f, 37f), new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f));
+            taskbarBase.color = Texture("taskbar_base") != null ? Color.white : new Color(0.07f, 0.06f, 0.045f, 0.96f);
 
             hpFill = CreateGaugeFill(hud, "HP", new Vector2(59f, 22f), new Vector2(95f, 11f), "hp_gauge_01");
             spFill = CreateGaugeFill(hud, "SP", new Vector2(59f, 12f), new Vector2(95f, 11f), "sp_gauge_01");
@@ -216,6 +220,7 @@ namespace Metin2Dev.Gameplay
             }
 
             BuildQuickSlots();
+            BuildTaskBarControls();
             BuildTaskButtons();
         }
 
@@ -262,11 +267,43 @@ namespace Metin2Dev.Gameplay
             CreateTaskButton("System", new Rect(320, 127, 32, 32), -42f, CloseAllWindows);
         }
 
+        void BuildTaskBarControls()
+        {
+            CreateHudAtlasButton("Left Mouse Mode", new Rect(32, 127, 32, 32), -128f, 2f, () => { });
+            CreateHudAtlasButton("Right Mouse Mode", new Rect(32, 127, 32, 32), 205f, 2f, () => { });
+            CreateHudAtlasButton("Chat", new Rect(0, 159, 14, 35), 42f, 1f, () => { });
+
+            CreateAtlasAtHudCenter("Quick Page Board", new Rect(487, 19, 9, 8), 185f, 14f, new Vector2(9f, 8f));
+            CreateHudAtlasButton("Quick Page Up", new Rect(272, 32, 9, 5), 185f, 23f, () => { });
+            CreateAtlasAtHudCenter("Quick Page Number", new Rect(506, 7, 5, 7), 187f, 15f, new Vector2(5f, 7f));
+            CreateHudAtlasButton("Quick Page Down", new Rect(487, 27, 9, 5), 185f, 8f, () => { });
+        }
+
+        Button CreateHudAtlasButton(string name, Rect source, float x, float bottom, UnityEngine.Events.UnityAction action)
+        {
+            RectTransform rect = CreateRect(hud, name, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                Vector2.zero, new Vector2(x, bottom), source.size);
+            RawImage image = CreateAtlasStretch(rect, name + " Image", Texture("taskbar"), source);
+            image.raycastTarget = true;
+            Button button = rect.gameObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.onClick.AddListener(action);
+            return button;
+        }
+
+        void CreateAtlasAtHudCenter(string name, Rect source, float x, float bottom, Vector2 size)
+        {
+            RectTransform rect = CreateRect(hud, name, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                Vector2.zero, new Vector2(x, bottom), size);
+            CreateAtlasStretch(rect, name + " Image", Texture("taskbar"), source);
+        }
+
         void CreateTaskButton(string name, Rect source, float right, UnityEngine.Events.UnityAction action)
         {
             RectTransform rect = CreateRect(hud, name + " Button", new Vector2(1f, 0f), new Vector2(1f, 0f),
                 Vector2.zero, new Vector2(right, 2f), new Vector2(32f, 32f));
             RawImage raw = CreateAtlasStretch(rect, name, Texture("taskbar"), source);
+            raw.raycastTarget = true;
             Button button = rect.gameObject.AddComponent<Button>();
             button.targetGraphic = raw;
             button.onClick.AddListener(action);
@@ -504,6 +541,8 @@ namespace Metin2Dev.Gameplay
         void UpdateStatusVisuals()
         {
             if (hpFill == null) return;
+            if (taskbarBase != null)
+                taskbarBase.uvRect = new Rect(0f, 0f, Mathf.Max(1f, taskbarBase.rectTransform.rect.width / 256f), 1f);
             hpFill.fillAmount = maxHp > 0f ? currentHp / maxHp : 0f;
             spFill.fillAmount = maxSp > 0f ? currentSp / maxSp : 0f;
             staminaFill.fillAmount = maxStamina > 0f ? currentStamina / maxStamina : 0f;
