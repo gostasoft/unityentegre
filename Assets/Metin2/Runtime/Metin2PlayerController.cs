@@ -217,15 +217,20 @@ namespace Metin2Dev.Gameplay
 
         void FireMotionEvent(Metin2MotionEvent motionEvent)
         {
-            Transform attachment = string.IsNullOrWhiteSpace(motionEvent.attachingBone)
-                ? transform
-                : GetComponentsInChildren<Transform>(true).FirstOrDefault(item => item.name == motionEvent.attachingBone) ?? transform;
+            // EffectLib only evaluates AttachingBoneName when AttachingEnable is set.
+            // A number of source skills (for example samyeon) retain a bone name while
+            // explicitly disabling attachment; those effects must originate at the actor root.
+            Transform attachment = motionEvent.attachToBone
+                ? ResolveEffectAttachment(motionEvent.attachingBone)
+                : transform;
             Vector3 worldPosition = attachment.TransformPoint(motionEvent.position);
             if (motionEvent.effectPrefab != null)
             {
                 GameObject effect = Instantiate(motionEvent.effectPrefab, worldPosition, attachment.rotation,
-                    attachment == transform ? null : attachment);
-                Destroy(effect, Mathf.Max(2f, motionEvent.duration + 2f));
+                    motionEvent.attachToBone && motionEvent.followAttachment && attachment != transform ? attachment : null);
+                // MSA effect events do not always provide DuringTime. Keep the spawned
+                // EffectLib conversion alive for the actual authored particle lifetime.
+                Destroy(effect, Mathf.Max(2f, motionEvent.duration + 2f, EffectLifetime(effect) + 0.1f));
             }
             if (motionEvent.type == 4 && motionEvent.radius > 0f)
             {
@@ -240,6 +245,33 @@ namespace Metin2Dev.Gameplay
                     remaining--;
                 }
             }
+        }
+
+        static float EffectLifetime(GameObject effect)
+        {
+            float lifetime = 0f;
+            foreach (ParticleSystem system in effect.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                ParticleSystem.MainModule main = system.main;
+                lifetime = Mathf.Max(lifetime, main.startDelay.constantMax + main.duration + main.startLifetime.constantMax);
+            }
+            return lifetime;
+        }
+
+        Transform ResolveEffectAttachment(string sourceBone)
+        {
+            if (string.IsNullOrWhiteSpace(sourceBone)) return transform;
+
+            Transform[] bones = GetComponentsInChildren<Transform>(true);
+            Transform exact = bones.FirstOrDefault(item => item.name == sourceBone);
+            if (exact != null) return exact;
+
+            // Metin2 MSA files name logical equipment sockets while the converted model
+            // retains the original Bip01 bone names.
+            string modelBone = sourceBone.Equals("equip_right_hand", StringComparison.OrdinalIgnoreCase) ? "Bip01 R Hand" :
+                sourceBone.Equals("equip_left_hand", StringComparison.OrdinalIgnoreCase) ? "Bip01 L Hand" :
+                sourceBone;
+            return bones.FirstOrDefault(item => item.name.Equals(modelBone, StringComparison.OrdinalIgnoreCase)) ?? transform;
         }
 
         static string[] ComboNames()
