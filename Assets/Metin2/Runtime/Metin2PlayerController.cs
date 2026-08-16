@@ -41,12 +41,14 @@ namespace Metin2Dev.Gameplay
             characterController.center = new Vector3(0f, 0.875f, 0f);
             combatMode = DefaultCombatMode();
             skills.Clear();
-            skills.AddRange(motionSet.motions
-                .Where(item => item != null && item.mode == "skill" && !item.name.EndsWith("_2") &&
-                               !item.name.EndsWith("_3") && !item.name.EndsWith("_4") &&
-                               !item.name.StartsWith("guild_", StringComparison.OrdinalIgnoreCase) &&
-                               item.name != "use_me" && item.name != "use_target")
-                .GroupBy(item => item.name, StringComparer.OrdinalIgnoreCase).Select(group => group.First()));
+            foreach (string name in SourceSkillOrder())
+            {
+                Metin2MotionRecord skill = Find("skill", name);
+                if (skill != null) skills.Add(skill);
+            }
+            if (skills.Count == 0)
+                skills.AddRange(motionSet.motions.Where(item => item != null && item.mode == "skill")
+                    .GroupBy(item => item.name, StringComparer.OrdinalIgnoreCase).Select(group => group.First()));
             PlayLoop("general", "wait", 0f);
         }
 
@@ -76,9 +78,24 @@ namespace Metin2Dev.Gameplay
             if (keyboard == null) return;
             if (keyboard.spaceKey.wasPressedThisFrame) QueueAttack();
             if (keyboard.rKey.wasPressedThisFrame) CycleCombatMode();
-            Key[] skillKeys = { Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5, Key.Digit6 };
-            for (int i = 0; i < skillKeys.Length && i < skills.Count; i++)
-                if (keyboard[skillKeys[i]].wasPressedThisFrame) PlayAction(skills[i]);
+            if (keyboard.digit1Key.wasPressedThisFrame || keyboard.numpad1Key.wasPressedThisFrame) ActivateQuickSlot(0);
+            if (keyboard.digit2Key.wasPressedThisFrame || keyboard.numpad2Key.wasPressedThisFrame) ActivateQuickSlot(1);
+            if (keyboard.digit3Key.wasPressedThisFrame || keyboard.numpad3Key.wasPressedThisFrame) ActivateQuickSlot(2);
+            if (keyboard.digit4Key.wasPressedThisFrame || keyboard.numpad4Key.wasPressedThisFrame) ActivateQuickSlot(3);
+            if (keyboard.f1Key.wasPressedThisFrame) ActivateQuickSlot(4);
+            if (keyboard.f2Key.wasPressedThisFrame) ActivateQuickSlot(5);
+            if (keyboard.f3Key.wasPressedThisFrame) ActivateQuickSlot(6);
+            if (keyboard.f4Key.wasPressedThisFrame) ActivateQuickSlot(7);
+        }
+
+        public void ActivateQuickSlot(int index)
+        {
+            if (index < 0 || index > 7) return;
+            string[] sourceOrder = SourceSkillOrder();
+            if (index >= sourceOrder.Length && index >= skills.Count) return;
+            Metin2MotionRecord skill = index < sourceOrder.Length ? Find("skill", sourceOrder[index]) : null;
+            skill ??= index < skills.Count ? skills[index] : null;
+            if (skill != null) PlayAction(skill);
         }
 
         void UpdateMovement()
@@ -199,6 +216,23 @@ namespace Metin2Dev.Gameplay
             combatMode = modes[(index + 1 + modes.Length) % modes.Length];
             currentMotion = null;
             PlayLoop(combatMode, "wait", 0.12f);
+        }
+
+        string[] SourceSkillOrder()
+        {
+            switch (motionSet.characterClass)
+            {
+                case Metin2Dev.Frontend.Metin2CharacterClass.Warrior:
+                    return new[] { "samyeon", "palbang", "jeongwi", "geomgyeong", "tanhwan", "geompung" };
+                case Metin2Dev.Frontend.Metin2CharacterClass.Assassin:
+                    return new[] { "amseup", "gungsin", "charyun", "eunhyeong", "sangong", "dokgigung" };
+                case Metin2Dev.Frontend.Metin2CharacterClass.Sura:
+                    return new[] { "swaeryeong", "yonggwon", "gwigeom", "gongpo", "jumagap", "pabeop" };
+                case Metin2Dev.Frontend.Metin2CharacterClass.Shaman:
+                    return new[] { "bipabu", "yongpa", "paeryong", "hosin", "boho", "gicheon" };
+                default:
+                    return Array.Empty<string>();
+            }
         }
 
         static float MotionSpeed(Metin2MotionRecord motion, float fallback)

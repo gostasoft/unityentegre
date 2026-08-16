@@ -11,6 +11,8 @@ namespace Metin2Dev.Gameplay
         public float startTime;
         public float duration;
         public string attachingBone;
+        public bool attachToBone;
+        public bool followAttachment;
         public Vector3 position;
         public float radius;
         public int hitLimit;
