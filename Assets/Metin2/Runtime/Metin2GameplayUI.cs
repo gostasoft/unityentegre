@@ -30,6 +30,7 @@ namespace Metin2Dev.Gameplay
         Image spFill;
         Image staminaFill;
         RawImage taskbarBase;
+        Texture2D eyeViewTexture;
         Text hpText;
         Text spText;
         Text characterNameText;
@@ -100,6 +101,7 @@ namespace Metin2Dev.Gameplay
         void OnDestroy()
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
+            if (eyeViewTexture != null) Destroy(eyeViewTexture);
             if (instance == this) instance = null;
         }
 
@@ -129,6 +131,8 @@ namespace Metin2Dev.Gameplay
             {
                 if (keyboard.iKey.wasPressedThisFrame) ToggleInventory();
                 if (keyboard.cKey.wasPressedThisFrame) ToggleCharacter();
+                // Turkish Q layout: the Ü key occupies the physical US Right Bracket key.
+                if (keyboard.rightBracketKey.wasPressedThisFrame) ToggleCameraView();
                 if (keyboard.escapeKey.wasPressedThisFrame)
                 {
                     inventoryWindow.gameObject.SetActive(false);
@@ -222,6 +226,7 @@ namespace Metin2Dev.Gameplay
             BuildQuickSlots();
             BuildTaskBarControls();
             BuildTaskButtons();
+            BuildCameraViewButton();
         }
 
         void BuildQuickSlots()
@@ -265,6 +270,80 @@ namespace Metin2Dev.Gameplay
             CreateTaskButton("Inventory", new Rect(455, 0, 32, 32), -110f, ToggleInventory);
             CreateTaskButton("Community", new Rect(359, 0, 32, 32), -76f, () => { });
             CreateTaskButton("System", new Rect(320, 127, 32, 32), -42f, CloseAllWindows);
+        }
+
+        void BuildCameraViewButton()
+        {
+            RectTransform rect = CreateRect(hud, "Camera View Button", new Vector2(1f, 0f), new Vector2(1f, 0f),
+                Vector2.zero, new Vector2(-178f, 2f), new Vector2(32f, 32f));
+            eyeViewTexture = CreateEyeViewTexture();
+            RawImage image = CreateRaw(rect, "Eye", eyeViewTexture, Vector2.zero, Vector2.zero,
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f));
+            image.raycastTarget = true;
+            Button button = rect.gameObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.onClick.AddListener(ToggleCameraView);
+        }
+
+        static Texture2D CreateEyeViewTexture()
+        {
+            const int size = 32;
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false, true)
+            {
+                name = "Metin2 Eye View Button",
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+            Color32 transparent = new Color32(0, 0, 0, 0);
+            Color32 panel = new Color32(25, 23, 18, 245);
+            Color32 outer = new Color32(45, 31, 18, 255);
+            Color32 border = new Color32(174, 135, 77, 255);
+            Color32 eye = new Color32(238, 221, 174, 255);
+            Color32 iris = new Color32(105, 157, 169, 255);
+            Color32 pupil = new Color32(15, 18, 17, 255);
+            Color32[] pixels = new Color32[size * size];
+            for (int index = 0; index < pixels.Length; index++) pixels[index] = transparent;
+
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                int dx = Mathf.Abs(x - 15);
+                int dy = Mathf.Abs(y - 15);
+                bool inside = dx <= 14 && dy <= 14 && dx + dy <= 24;
+                if (!inside) continue;
+                bool edge = dx >= 13 || dy >= 13 || dx + dy >= 22;
+                pixels[y * size + x] = edge ? (dx + dy >= 23 ? outer : border) : panel;
+            }
+
+            for (int x = 6; x <= 25; x++)
+            {
+                float phase = (x - 6f) / 19f;
+                int span = Mathf.RoundToInt(Mathf.Sin(phase * Mathf.PI) * 6f);
+                SetPixel(pixels, size, x, 15 + span, eye);
+                SetPixel(pixels, size, x, 15 + span - 1, eye);
+                SetPixel(pixels, size, x, 15 - span, eye);
+                SetPixel(pixels, size, x, 15 - span + 1, eye);
+            }
+
+            for (int y = 9; y <= 21; y++)
+            for (int x = 10; x <= 22; x++)
+            {
+                int dx = x - 16;
+                int dy = y - 15;
+                int distance = dx * dx + dy * dy;
+                if (distance <= 30) SetPixel(pixels, size, x, y, iris);
+                if (distance <= 9) SetPixel(pixels, size, x, y, pupil);
+            }
+            SetPixel(pixels, size, 18, 18, eye);
+            texture.SetPixels32(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
+        static void SetPixel(Color32[] pixels, int size, int x, int y, Color32 color)
+        {
+            if (x < 0 || y < 0 || x >= size || y >= size) return;
+            pixels[y * size + x] = color;
         }
 
         void BuildTaskBarControls()
@@ -588,6 +667,12 @@ namespace Metin2Dev.Gameplay
         {
             characterWindow.gameObject.SetActive(!characterWindow.gameObject.activeSelf);
             if (characterWindow.gameObject.activeSelf) characterWindow.SetAsLastSibling();
+        }
+
+        void ToggleCameraView()
+        {
+            Metin2GameplayCamera gameplayCamera = FindFirstObjectByType<Metin2GameplayCamera>();
+            if (gameplayCamera != null) gameplayCamera.ToggleView();
         }
 
         void CloseAllWindows()
