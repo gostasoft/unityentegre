@@ -88,7 +88,11 @@ namespace Metin2Dev
             string project = Directory.GetParent(Application.dataPath).FullName;
             List<string> all = FindRoots(project).SelectMany(SafeFiles).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             FileIndex effects = new FileIndex(all.Where(IsEffectFile), ".mse");
-            FileIndex textures = new FileIndex(all.Where(path => ImageExtensions.Contains(Path.GetExtension(path).ToLowerInvariant())), ".png");
+            // Keep DDS files in the source index too. They resolve to their alpha-preserving
+            // PNG counterpart in ImportEffectTexture, but must first be found by their MSE path.
+            FileIndex textures = new FileIndex(all.Where(path =>
+                ImageExtensions.Contains(Path.GetExtension(path).ToLowerInvariant()) ||
+                Path.GetExtension(path).Equals(".dds", StringComparison.OrdinalIgnoreCase)), ".png");
             Report report = new Report();
             Folders(prefabFolder);
             ImportedAssets.Clear();
