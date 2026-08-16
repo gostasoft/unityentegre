@@ -263,6 +263,14 @@ namespace Metin2Dev.Gameplay
             if (string.IsNullOrWhiteSpace(sourceBone)) return transform;
 
             Transform[] bones = GetComponentsInChildren<Transform>(true);
+            // The original client attaches a weapon effect requested through this logical socket
+            // to the currently equipped weapon.  In the converted FBX the socket can be a
+            // separate dummy, while the test sword is correctly animated below Bip01 R Hand.
+            if (sourceBone.Equals("equip_right_hand", StringComparison.OrdinalIgnoreCase))
+            {
+                Transform weapon = bones.FirstOrDefault(item => item.name.StartsWith("Weapon -", StringComparison.Ordinal));
+                if (weapon != null) return weapon;
+            }
             Transform exact = bones.FirstOrDefault(item => item.name == sourceBone);
             if (exact != null) return exact;
 
