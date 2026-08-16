@@ -778,7 +778,7 @@ namespace Metin2Dev
                 MdeElement element = data.Elements[elementIndex];
                 if (element.Frames.Count == 0) continue;
                 MseMeshElement settings = elementIndex < definition.Elements.Count ? definition.Elements[elementIndex] : new MseMeshElement();
-                string textureSource = ResolveSourceReference(element.TextureReference, Path.GetDirectoryName(mdePath), textures);
+                string textureSource = ResolveEffectTextureReference(element.TextureReference, Path.GetDirectoryName(mdePath), textures);
                 Texture2D texture = ImportEffectTexture(textureSource, report, element.TextureReference, msePath);
                 Material material = GetEffectMaterial(texture, settings.Color, settings.SourceBlend, settings.DestinationBlend, folder, elementIndex);
 
@@ -825,7 +825,7 @@ namespace Metin2Dev
 
         static bool BuildEffectParticles(MseParticle definition, string msePath, FileIndex textures, GameObject parent, int index, Report report)
         {
-            string textureSource = ResolveSourceReference(definition.TextureReference, Path.GetDirectoryName(msePath), textures);
+            string textureSource = ResolveEffectTextureReference(definition.TextureReference, Path.GetDirectoryName(msePath), textures);
             Texture2D texture = ImportEffectTexture(textureSource, report, definition.TextureReference, msePath);
             if (texture == null) return false;
 
@@ -834,11 +834,14 @@ namespace Metin2Dev
             particleObject.transform.localPosition = MetinVector(definition.Position) / MetinUnitsPerUnityUnit;
             ParticleSystem system = particleObject.GetComponent<ParticleSystem>();
             ParticleSystem.MainModule main = system.main;
-            main.loop = true;
+            main.loop = definition.CycleLoop;
             main.duration = Mathf.Max(0.1f, definition.CycleLength);
+            main.startDelay = Mathf.Max(0f, definition.StartTime);
             main.startLifetime = Mathf.Max(0.01f, definition.Lifetime);
             main.maxParticles = Mathf.Max(1, definition.MaxParticles);
-            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            // EffectLib creates non-attached particles in world space at emission time;
+            // attached particles remain in the emitter's local space.
+            main.simulationSpace = definition.Attach ? ParticleSystemSimulationSpace.Local : ParticleSystemSimulationSpace.World;
             main.startSpeed = 0f;
             main.startSize3D = true;
             main.startSizeX = Mathf.Max(0.001f, definition.SizeX * 2f / MetinUnitsPerUnityUnit);
@@ -853,19 +856,48 @@ namespace Metin2Dev
             emission.rateOverTime = Mathf.Max(0f, definition.EmissionRate);
 
             ParticleSystem.ShapeModule shape = system.shape;
-            shape.enabled = true;
-            shape.shapeType = definition.EmitterShape == 2 ? ParticleSystemShapeType.Box : ParticleSystemShapeType.Sphere;
-            Vector3 emittingSize = MetinVector(definition.EmittingSize);
-            shape.scale = new Vector3(Mathf.Max(0.01f, Mathf.Abs(emittingSize.x) / MetinUnitsPerUnityUnit), Mathf.Max(0.01f, Mathf.Abs(emittingSize.y) / MetinUnitsPerUnityUnit), Mathf.Max(0.01f, Mathf.Abs(emittingSize.z) / MetinUnitsPerUnityUnit));
+            Vector3 emittingSize = MetinVector(definition.EmittingSize) / MetinUnitsPerUnityUnit;
+            float emitterRadius = Mathf.Max(0f, (definition.EmittingRadius + definition.EmittingSizeOffset) / MetinUnitsPerUnityUnit);
+            // Exact EffectLib enum: 0 Point, 1 Ellipse, 2 Square, 3 Sphere.
+            switch (definition.EmitterShape)
+            {
+                case 0: // Point
+                    shape.enabled = false;
+                    break;
+                case 1: // Ellipse lies in Metin's XY plane, which becomes Unity XZ.
+                    shape.enabled = true;
+                    shape.shapeType = ParticleSystemShapeType.Circle;
+                    shape.rotation = new Vector3(90f, 0f, 0f);
+                    shape.radius = Mathf.Max(0.001f, emitterRadius);
+                    shape.radiusThickness = definition.EmitFromEdge ? 0f : 1f;
+                    break;
+                case 2: // Square
+                    shape.enabled = true;
+                    shape.shapeType = ParticleSystemShapeType.Box;
+                    shape.scale = new Vector3(Mathf.Max(0.001f, Mathf.Abs(emittingSize.x)), Mathf.Max(0.001f, Mathf.Abs(emittingSize.y)), Mathf.Max(0.001f, Mathf.Abs(emittingSize.z)));
+                    break;
+                case 3: // Sphere
+                    shape.enabled = true;
+                    shape.shapeType = ParticleSystemShapeType.Sphere;
+                    shape.radius = Mathf.Max(0.001f, emitterRadius);
+                    shape.radiusThickness = definition.EmitFromEdge ? 0f : 1f;
+                    break;
+                default:
+                    shape.enabled = false;
+                    report.Warnings.Add("Unknown EffectLib emitter shape " + definition.EmitterShape + " | " + msePath);
+                    break;
+            }
 
             Vector3 sourceVelocity = definition.Direction * definition.Velocity;
             Vector3 velocity = MetinVector(sourceVelocity) / MetinUnitsPerUnityUnit;
+            // EffectLib adds a per-axis random range of EmittingDirection * 1000 / 2.
+            Vector3 velocitySpread = MetinVector(definition.DirectionVariance) * 5f;
             ParticleSystem.VelocityOverLifetimeModule velocityModule = system.velocityOverLifetime;
-            velocityModule.enabled = velocity.sqrMagnitude > 0.000001f;
+            velocityModule.enabled = velocity.sqrMagnitude > 0.000001f || velocitySpread.sqrMagnitude > 0.000001f;
             velocityModule.space = ParticleSystemSimulationSpace.Local;
-            velocityModule.x = velocity.x;
-            velocityModule.y = velocity.y;
-            velocityModule.z = velocity.z;
+            velocityModule.x = new ParticleSystem.MinMaxCurve(velocity.x - velocitySpread.x, velocity.x + velocitySpread.x);
+            velocityModule.y = new ParticleSystem.MinMaxCurve(velocity.y - velocitySpread.y, velocity.y + velocitySpread.y);
+            velocityModule.z = new ParticleSystem.MinMaxCurve(velocity.z - velocitySpread.z, velocity.z + velocitySpread.z);
 
             ParticleSystem.SizeOverLifetimeModule size = system.sizeOverLifetime;
             size.enabled = definition.ScaleX.Count > 0 || definition.ScaleY.Count > 0;
@@ -883,11 +915,25 @@ namespace Metin2Dev
             rotation.z = definition.RotationSpeed * Mathf.Deg2Rad;
 
             ParticleSystemRenderer renderer = particleObject.GetComponent<ParticleSystemRenderer>();
-            renderer.renderMode = definition.BillboardType == 3 ? ParticleSystemRenderMode.HorizontalBillboard
+            renderer.renderMode = definition.Stretch ? ParticleSystemRenderMode.Stretch
+                : definition.BillboardType == 3 ? ParticleSystemRenderMode.HorizontalBillboard
                 : definition.BillboardType == 2 ? ParticleSystemRenderMode.VerticalBillboard : ParticleSystemRenderMode.Billboard;
+            if (definition.Stretch)
+            {
+                renderer.velocityScale = 0.35f;
+                renderer.lengthScale = 1.5f;
+            }
             renderer.sortMode = ParticleSystemSortMode.Distance;
             renderer.sharedMaterial = GetEffectMaterial(texture, Color.white, definition.SourceBlend, definition.DestinationBlend,
                 Output + "/Effects/Materials", int.Parse(Hash(textureSource + "|" + definition.SourceBlend + "|" + definition.DestinationBlend).Substring(0, 6), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+            if (definition.PositionEvents.Count > 1)
+            {
+                Metin2Dev.Gameplay.Metin2EffectPathMotion path = particleObject.AddComponent<Metin2Dev.Gameplay.Metin2EffectPathMotion>();
+                path.positions = definition.PositionEvents.Select(value => MetinVector(value.Position) / MetinUnitsPerUnityUnit).ToArray();
+                path.times = definition.PositionEvents.Select(value => value.Time).ToArray();
+                path.startDelay = definition.StartTime;
+                path.loop = definition.CycleLoop;
+            }
             return true;
         }
 
@@ -901,6 +947,14 @@ namespace Metin2Dev
             if (source == null)
             {
                 report.Missing.Add("Effect texture | " + reference + " | " + owner);
+                return null;
+            }
+            if (Path.GetExtension(source).Equals(".dds", StringComparison.OrdinalIgnoreCase))
+            {
+                string convertedPath = Raw + "/Effects/ConvertedDDS/" + Clean(Path.GetFileNameWithoutExtension(source)) + "_" + Hash(source) + ".png";
+                Texture2D converted = AssetDatabase.LoadAssetAtPath<Texture2D>(convertedPath);
+                if (converted != null) return converted;
+                report.Missing.Add("Converted DDS effect texture | " + reference + " | " + owner);
                 return null;
             }
             string assetPath = CopyAsset(source, Raw + "/Effects/Textures");
@@ -922,7 +976,7 @@ namespace Metin2Dev
             string textureKey = texture != null ? AssetDatabase.GetAssetPath(texture) : "none";
             string path = folder + "/EffectMaterial_" + elementIndex.ToString("D3") + "_" + Hash(textureKey + "|" + color + "|" + sourceBlend + "|" + destinationBlend) + ".mat";
             Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
-            Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Transparent");
+            Shader shader = Shader.Find("Metin2/Original Effect") ?? Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Unlit/Transparent");
             if (material == null)
             {
                 material = new Material(shader) { name = Path.GetFileNameWithoutExtension(path) };
@@ -934,13 +988,11 @@ namespace Metin2Dev
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
             if (material.HasProperty("_Color")) material.SetColor("_Color", color);
             if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
-            if (material.HasProperty("_Blend")) material.SetFloat("_Blend", 0f);
             if (material.HasProperty("_SrcBlend")) material.SetFloat("_SrcBlend", UnityBlend(sourceBlend));
             if (material.HasProperty("_DstBlend")) material.SetFloat("_DstBlend", UnityBlend(destinationBlend));
             if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
             if (material.HasProperty("_Cull")) material.SetFloat("_Cull", 0f);
             material.SetOverrideTag("RenderType", "Transparent");
-            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             material.DisableKeyword("_ALPHATEST_ON");
             material.renderQueue = (int)RenderQueue.Transparent;
             EditorUtility.SetDirty(material);
@@ -972,6 +1024,17 @@ namespace Metin2Dev
             string candidate = Path.Combine(sourceDirectory ?? "", Path.GetFileName(localName));
             if (File.Exists(candidate)) return candidate;
             return index.Resolve(reference);
+        }
+
+        static string ResolveEffectTextureReference(string reference, string sourceDirectory, FileIndex textures)
+        {
+            if (string.IsNullOrWhiteSpace(reference)) return null;
+            string localName = reference.Trim().Trim('"').Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+            string localCandidate = Path.Combine(sourceDirectory ?? string.Empty, Path.GetFileName(localName));
+            // Keep the exact source. DDS assets use alpha-preserving PNG conversions in
+            // ImportEffectTexture instead of a lossy JPG substitute.
+            if (File.Exists(localCandidate)) return localCandidate;
+            return textures.Resolve(reference);
         }
 
         static MdeEffect ReadMde(string path)
@@ -1078,11 +1141,17 @@ namespace Metin2Dev
             string particle = ExtractGroupBlocks(block, "ParticleProperty").FirstOrDefault() ?? "";
             return new MseParticle
             {
+                StartTime = ReadFloatToken(block, "StartTime", 0f),
                 Position = ReadEffectPosition(block),
                 CycleLength = ReadFloatToken(emitter, "CycleLength", 1f),
+                CycleLoop = ReadIntToken(emitter, "CycleLoopEnable", 0) != 0,
                 MaxParticles = ReadIntToken(emitter, "MaxEmissionCount", 10),
                 EmitterShape = ReadIntToken(emitter, "EmitterShape", 0),
                 EmittingSize = ReadVector3Token(emitter, "EmittingSize", Vector3.zero),
+                EmittingRadius = ReadFloatToken(emitter, "EmittingRadius", 0f),
+                EmittingSizeOffset = FirstEventValue(emitter, "TimeEventEmittingSize", 0f),
+                EmitFromEdge = ReadIntToken(emitter, "EmitterEmitFromEdgeFlag", 0) != 0,
+                DirectionVariance = ReadVector3Token(emitter, "EmittingDirection", Vector3.zero),
                 Direction = new Vector3(FirstEventValue(emitter, "TimeEventEmittingDirectionX", 0f), FirstEventValue(emitter, "TimeEventEmittingDirectionY", 0f), FirstEventValue(emitter, "TimeEventEmittingDirectionZ", 0f)),
                 Velocity = FirstEventValue(emitter, "TimeEventEmittingVelocity", 0f),
                 EmissionRate = FirstEventValue(emitter, "TimeEventEmissionCountPerSecond", 0f),
@@ -1097,6 +1166,9 @@ namespace Metin2Dev
                 RotationStartMax = ReadFloatToken(particle, "RotationRandomStartingEnd", 0f),
                 Gravity = FirstEventValue(particle, "TimeEventGravity", 0f),
                 TextureReference = ReadFirstQuotedListValue(particle, "TextureFiles"),
+                Stretch = ReadIntToken(particle, "StretchEnable", 0) != 0,
+                Attach = ReadIntToken(particle, "AttachEnable", 0) != 0,
+                PositionEvents = ReadEffectPositionEvents(block),
                 ScaleX = ReadEventFloats(particle, "TimeEventScaleX"),
                 ScaleY = ReadEventFloats(particle, "TimeEventScaleY"),
                 Red = ReadEventFloats(particle, "TimeEventColorRed"),
@@ -1200,6 +1272,19 @@ namespace Metin2Dev
             Match match = Regex.Match(ExtractList(text, "TimeEventPosition"), @"[-+0-9.eE]+\s+""[^""]+""\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)");
             if (!match.Success || !TryFloat(match.Groups[1].Value, out float x) || !TryFloat(match.Groups[2].Value, out float y) || !TryFloat(match.Groups[3].Value, out float z)) return Vector3.zero;
             return new Vector3(x, y, z);
+        }
+
+        static List<EventVector> ReadEffectPositionEvents(string text)
+        {
+            List<EventVector> result = new List<EventVector>();
+            foreach (string line in ExtractList(text, "TimeEventPosition").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                Match match = Regex.Match(line, @"^\s*([-+0-9.eE]+)\s+""[^""]+""\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)");
+                if (!match.Success || !TryFloat(match.Groups[1].Value, out float time) || !TryFloat(match.Groups[2].Value, out float x) ||
+                    !TryFloat(match.Groups[3].Value, out float y) || !TryFloat(match.Groups[4].Value, out float z)) continue;
+                result.Add(new EventVector { Time = time, Position = new Vector3(x, y, z) });
+            }
+            return result.OrderBy(value => value.Time).ToList();
         }
 
         static ParticleSystem.MinMaxCurve ToMinMaxCurve(List<EventFloat> values, float fallback)
@@ -1776,6 +1861,19 @@ namespace Metin2Dev
                 string key = Stem(Path.GetFileNameWithoutExtension((reference ?? "").Replace('\\', '/')));
                 return key.Length > 0 && files.TryGetValue(key, out List<string> exact) ? Best(exact, reference) : null;
             }
+            public string ResolvePreferredImage(string reference)
+            {
+                string key = Stem(Path.GetFileNameWithoutExtension((reference ?? "").Replace('\\', '/')));
+                if (key.Length == 0) return null;
+                List<string> candidates = files.TryGetValue(key, out List<string> exact)
+                    ? exact
+                    : files.Where(item => item.Key.Contains(key) || key.Contains(item.Key)).SelectMany(item => item.Value).ToList();
+                if (candidates.Count == 0) return null;
+                string normalized = WithoutExtension((reference ?? "").Replace('\\', '/').ToLowerInvariant());
+                return candidates.OrderBy(ImagePriority)
+                    .ThenByDescending(path => Suffix(normalized, WithoutExtension(path.Replace('\\', '/').ToLowerInvariant())))
+                    .ThenBy(path => path.Length).First();
+            }
             string Best(IEnumerable<string> candidates, string reference)
             {
                 string normalized = WithoutExtension((reference ?? "").Replace('\\', '/').ToLowerInvariant());
@@ -1785,6 +1883,18 @@ namespace Metin2Dev
             static string WithoutExtension(string path) { string extension = Path.GetExtension(path); return extension.Length > 0 ? path.Substring(0, path.Length - extension.Length) : path; }
             static string Stem(string value) { return new string((value ?? "").Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray()); }
             static int Suffix(string a, string b) { int count = 0; while (count < Math.Min(a.Length, b.Length) && a[a.Length - count - 1] == b[b.Length - count - 1]) count++; return count; }
+            static int ImagePriority(string path)
+            {
+                switch (Path.GetExtension(path).ToLowerInvariant())
+                {
+                    case ".png": return 0;
+                    case ".tga": return 1;
+                    case ".jpg":
+                    case ".jpeg": return 2;
+                    case ".bmp": return 3;
+                    default: return 4;
+                }
+            }
         }
 
         sealed class MseEffect
@@ -1806,11 +1916,13 @@ namespace Metin2Dev
         }
         sealed class MseParticle
         {
-            public Vector3 Position, EmittingSize, Direction;
-            public float CycleLength = 1f, Velocity, EmissionRate, Lifetime = 1f, SizeX = 100f, SizeY = 100f, Gravity;
+            public Vector3 Position, EmittingSize, Direction, DirectionVariance;
+            public float StartTime, CycleLength = 1f, Velocity, EmissionRate, Lifetime = 1f, SizeX = 100f, SizeY = 100f, Gravity, EmittingRadius, EmittingSizeOffset;
             public float RotationSpeed, RotationStartMin, RotationStartMax;
             public int MaxParticles = 10, EmitterShape, SourceBlend = 5, DestinationBlend = 6, BillboardType = 1;
+            public bool CycleLoop, Stretch, Attach, EmitFromEdge;
             public string TextureReference;
+            public List<EventVector> PositionEvents = new List<EventVector>();
             public List<EventFloat> ScaleX = new List<EventFloat>(), ScaleY = new List<EventFloat>();
             public List<EventFloat> Red = new List<EventFloat>(), Green = new List<EventFloat>(), Blue = new List<EventFloat>(), Alpha = new List<EventFloat>();
         }
@@ -1822,6 +1934,7 @@ namespace Metin2Dev
         }
         sealed class MdeFrame { public float Visibility; public Vector3[] Vertices; public Vector2[] Uv; }
         sealed class EventFloat { public float Time, Value; }
+        sealed class EventVector { public float Time; public Vector3 Position; }
         sealed class MapSource { public string Root; public string Name; public string SettingPath; }
         sealed class MapSettings { public float CellScale = 200f; public float HeightScale = 0.5f; public string TextureSet = ""; }
         sealed class TerrainTextureEntry { public int Index; public string Reference; public float UScale = 1f, VScale = 1f, UOffset, VOffset; }
