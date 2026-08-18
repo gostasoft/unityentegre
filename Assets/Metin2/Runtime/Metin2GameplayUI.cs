@@ -114,6 +114,9 @@ namespace Metin2Dev.Gameplay
         {
             gameplayVisible = scene.IsValid() && scene.isLoaded && scene.name != "Metin2_Intro";
             if (canvas != null) canvas.gameObject.SetActive(gameplayVisible);
+            if (gameplayVisible) Metin2MobileGameplayUI.EnsureRuntimeInstance();
+            Metin2MobileGameplayUI.SetGlobalGameplayVisible(gameplayVisible);
+            ApplyHudLayoutMode();
             player = null;
             if (!gameplayVisible) return;
             InitializeStatus();
@@ -124,6 +127,7 @@ namespace Metin2Dev.Gameplay
         void Update()
         {
             if (!gameplayVisible) return;
+            ApplyHudLayoutMode();
             if (player == null) player = FindFirstObjectByType<Metin2PlayerController>();
 
             Keyboard keyboard = Keyboard.current;
@@ -141,6 +145,13 @@ namespace Metin2Dev.Gameplay
                 UpdateQuickSlotHighlights(keyboard);
             }
             UpdateStatusVisuals();
+        }
+
+        void ApplyHudLayoutMode()
+        {
+            if (hud == null) return;
+            bool showDesktopTaskbar = gameplayVisible && !Metin2MobileGameplayUI.IsMobileLayoutActive;
+            if (hud.gameObject.activeSelf != showDesktopTaskbar) hud.gameObject.SetActive(showDesktopTaskbar);
         }
 
         void LoadTextures()
@@ -913,3 +924,4 @@ namespace Metin2Dev.Gameplay
         }
     }
 }
+
