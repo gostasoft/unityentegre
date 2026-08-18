@@ -498,8 +498,23 @@ namespace Metin2Dev.Frontend
 
         IEnumerator LoadGame(Metin2CharacterData character, Text status, RectTransform fill, RectTransform footer)
         {
-            Metin2Dev.Gameplay.Metin2GameplaySession.Select(character, saveData.empire);
+            Metin2Dev.Gameplay.Metin2GameplaySession.Select(character, saveData.empire,
+                config.GetRacePrefab(character.characterClass, character.gender),
+                config.GetHairPrefab(character.characterClass, character.gender),
+                config.GetBodyTexture(character.characterClass, character.gender),
+                config.GetFaceTexture(character.characterClass, character.gender),
+                config.GetHairTexture(character.characterClass, character.gender));
             string sceneName = config.GetScene(saveData.empire);
+            if (!Application.CanStreamedLevelBeLoaded(sceneName))
+            {
+                string fallback = new[] { "metin2_map_b1", "metin2_map_c1" }
+                    .FirstOrDefault(Application.CanStreamedLevelBeLoaded);
+                if (!string.IsNullOrWhiteSpace(fallback))
+                {
+                    Debug.LogWarning("Starting map is unavailable: " + sceneName + ". Loading " + fallback + " instead.");
+                    sceneName = fallback;
+                }
+            }
             float displayed = 0f;
             float warmup = 0f;
             while (warmup < 0.75f)

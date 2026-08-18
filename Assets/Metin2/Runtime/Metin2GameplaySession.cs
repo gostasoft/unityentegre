@@ -16,8 +16,14 @@ namespace Metin2Dev.Gameplay
         public static int Intelligence { get; private set; }
         public static int Strength { get; private set; }
         public static int Dexterity { get; private set; }
+        public static GameObject PlayerPrefab { get; private set; }
+        public static GameObject HairPrefab { get; private set; }
+        public static Texture2D BodyTexture { get; private set; }
+        public static Texture2D FaceTexture { get; private set; }
+        public static Texture2D HairTexture { get; private set; }
 
-        public static void Select(Metin2CharacterData character, Metin2Empire empire)
+        public static void Select(Metin2CharacterData character, Metin2Empire empire, GameObject playerPrefab,
+            GameObject hairPrefab, Texture2D bodyTexture, Texture2D faceTexture, Texture2D hairTexture)
         {
             if (character == null) return;
             HasCharacter = true;
@@ -31,6 +37,11 @@ namespace Metin2Dev.Gameplay
             Intelligence = Mathf.Max(1, character.intelligence);
             Strength = Mathf.Max(1, character.strength);
             Dexterity = Mathf.Max(1, character.dexterity);
+            PlayerPrefab = playerPrefab;
+            HairPrefab = hairPrefab;
+            BodyTexture = bodyTexture;
+            FaceTexture = faceTexture;
+            HairTexture = hairTexture;
         }
 
         public static void UseEditorDefault()

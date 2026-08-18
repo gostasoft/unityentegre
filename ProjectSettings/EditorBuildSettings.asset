@@ -6,8 +6,17 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Metin2/Frontend/Scenes/Metin2_Intro.unity
+    guid: 44ea7335f735b764e99446bdea8f381e
+  - enabled: 1
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
+  - enabled: 1
+    path: Assets/Metin2/Generated/Scenes/metin2_map_b1.unity
+    guid: 25520347f6322c441abdccdf29adbf75
+  - enabled: 1
+    path: Assets/Metin2/Generated/Scenes/metin2_map_c1.unity
+    guid: 4e576ea375cf2a249a20e392badcdddd
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0

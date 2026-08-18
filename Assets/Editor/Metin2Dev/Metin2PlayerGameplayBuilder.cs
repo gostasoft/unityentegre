@@ -15,19 +15,76 @@ namespace Metin2Dev.Editor
 {
     public static class Metin2PlayerGameplayBuilder
     {
-        const int BuilderVersion = 2;
+        const int BuilderVersion = 4;
         const string GeneratedRoot = "Assets/Metin2/Gameplay/Generated";
         const string AnimationRoot = GeneratedRoot + "/Animations";
         const string ResourceRoot = GeneratedRoot + "/Resources";
         const string DatabasePath = ResourceRoot + "/Metin2GameplayDatabase.asset";
+        const string WarriorEffectRequest = "Metin2WarriorSkillEffects.request";
+        static bool requestBuildRunning;
 
         [InitializeOnLoadMethod]
         static void RunRequestedBuild()
         {
+            EditorApplication.update -= ProcessRequestedBuilds;
+            EditorApplication.update += ProcessRequestedBuilds;
+        }
+
+        static void ProcessRequestedBuilds()
+        {
+            if (requestBuildRunning || EditorApplication.isCompiling || EditorApplication.isUpdating) return;
             string marker = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Library", "Metin2PlayerGameplayBuild.request");
-            if (!File.Exists(marker)) return;
-            File.Delete(marker);
-            EditorApplication.delayCall += Build;
+            if (File.Exists(marker))
+            {
+                File.Delete(marker);
+                requestBuildRunning = true;
+                try { Build(); }
+                finally { requestBuildRunning = false; }
+                return;
+            }
+
+            string warriorEffectMarker = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Library", WarriorEffectRequest);
+            if (File.Exists(warriorEffectMarker))
+            {
+                File.Delete(warriorEffectMarker);
+                requestBuildRunning = true;
+                try { BuildWarriorSkillEffects(); }
+                finally { requestBuildRunning = false; }
+            }
+        }
+
+        [MenuItem("Tools/Metin2/Rebuild Warrior 1-6 Skill Effects")]
+        public static void BuildWarriorSkillEffects()
+        {
+            string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+            string extractedRoot = Path.Combine(projectRoot, "Metin2,5", "Extracted");
+            try
+            {
+                EnsureAssetFolder(ResourceRoot);
+                string[] manifests = AssetDatabase.FindAssets("", new[] { AnimationRoot })
+                    .Select(AssetDatabase.GUIDToAssetPath).Where(path => path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)).ToArray();
+                string skillRoot = Path.Combine(extractedRoot, "PC", "ymir work", "pc", "warrior", "skill");
+                string[] warriorSkillFiles = { "samyeon.msa", "palbang.msa", "jeongwi.msa", "geomgyeong.msa", "tanhwan.msa", "gihyeol.msa" };
+                // The runtime uses the level variants (for example geomgyeong_2.msa), not only
+                // the base skill files. Include each source skill and every authored level variant.
+                string[] references = warriorSkillFiles.Select(Path.GetFileNameWithoutExtension)
+                    .SelectMany(skill => Directory.GetFiles(skillRoot, skill + "*.msa", SearchOption.TopDirectoryOnly))
+                    .Where(File.Exists)
+                    .SelectMany(path => Regex.Matches(File.ReadAllText(path), "(?im)^\\s*EffectFileName\\s+\"([^\"]+)\"")
+                        .Cast<Match>().Select(match => match.Groups[1].Value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                Dictionary<string, GameObject> effects = Metin2Dev.Metin2MapImporter.BuildGameplayEffectPrefabs(
+                    references, GeneratedRoot + "/Effects");
+                Metin2GameplayDatabase database = BuildDatabase(manifests, extractedRoot, effects);
+                EditorUtility.SetDirty(database);
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+                Debug.Log($"[Metin2Player] Warrior skill effects rebuilt: {effects.Count}/{references.Length} source effects linked.");
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
         }
 
         [Serializable] sealed class Manifest
@@ -79,9 +136,16 @@ namespace Metin2Dev.Editor
                     .Select(AssetDatabase.GUIDToAssetPath).Where(path => path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)).ToArray();
                 ConfigureAnimationImports(assetManifests);
                 ConfigureRaceModels();
+
+                // Make the playable character available first. Effect conversion can involve hundreds of source files
+                // and must not leave the game without a player while that optional visual pass is running.
+                Metin2GameplayDatabase database = BuildDatabase(assetManifests, extractedRoot, new Dictionary<string, GameObject>());
+                EditorUtility.SetDirty(database);
+                AssetDatabase.SaveAssets();
+
                 Dictionary<string, GameObject> effects = Metin2Dev.Metin2MapImporter.BuildGameplayEffectPrefabs(
                     FindEffectReferences(extractedRoot), GeneratedRoot + "/Effects");
-                Metin2GameplayDatabase database = BuildDatabase(assetManifests, extractedRoot, effects);
+                database = BuildDatabase(assetManifests, extractedRoot, effects);
                 EditorUtility.SetDirty(database);
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
@@ -172,12 +236,12 @@ namespace Metin2Dev.Editor
 
         static Metin2GameplayDatabase BuildDatabase(string[] manifestPaths, string extractedRoot, Dictionary<string, GameObject> effects)
         {
-            Metin2GameplayDatabase database = AssetDatabase.LoadAssetAtPath<Metin2GameplayDatabase>(DatabasePath);
-            if (database == null)
-            {
-                database = ScriptableObject.CreateInstance<Metin2GameplayDatabase>();
-                AssetDatabase.CreateAsset(database, DatabasePath);
-            }
+            // This asset is entirely generated. Recreate it to recover safely from an interrupted Unity domain reload
+            // instead of retaining a ScriptableObject with a missing script reference and an empty race list.
+            // LoadAssetAtPath<T> returns null for a Missing Script asset, so test the path itself before deleting.
+            if (AssetDatabase.LoadMainAssetAtPath(DatabasePath) != null) AssetDatabase.DeleteAsset(DatabasePath);
+            Metin2GameplayDatabase database = ScriptableObject.CreateInstance<Metin2GameplayDatabase>();
+            AssetDatabase.CreateAsset(database, DatabasePath);
             database.races.Clear();
 
             foreach ((Metin2CharacterClass characterClass, Metin2Gender gender, string pack, string className) race in RaceDefinitions())
@@ -264,7 +328,7 @@ namespace Metin2Dev.Editor
                 int type = Int(block, "MotionEventType", -1);
                 if (type != 1 && type != 4) continue;
                 string effectReference = Quoted(block, "EffectFileName");
-                string bone = Int(block, "AttachingEnable", 0) != 0 ? Quoted(block, "AttachingBoneName") : string.Empty;
+                string bone = Quoted(block, "AttachingBoneName");
                 string sphere = ExtractGroupBlocks(block, "SphereData").FirstOrDefault() ?? string.Empty;
                 Metin2MotionEvent motionEvent = new Metin2MotionEvent
                 {
@@ -272,6 +336,8 @@ namespace Metin2Dev.Editor
                     startTime = Float(block, "StartingTime", 0f),
                     duration = Float(block, "DuringTime", 0f),
                     attachingBone = bone,
+                    attachToBone = Int(block, "AttachingEnable", 0) != 0,
+                    followAttachment = Int(block, "FollowingEnable", 0) != 0,
                     position = MetinVector(Vector(block, type == 1 ? "EffectPosition" : "Position")),
                     radius = Float(sphere, "Radius", 0f) / 100f,
                     hitLimit = Int(block, "HitLimitCount", 0),

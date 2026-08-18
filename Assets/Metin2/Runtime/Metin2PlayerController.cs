@@ -11,20 +11,35 @@ namespace Metin2Dev.Gameplay
     [RequireComponent(typeof(CharacterController))]
     public sealed class Metin2PlayerController : MonoBehaviour
     {
-        const float SourceUnitsPerMetre = 100f;
+        // The original clips are authored in client world scale; generated maps use a larger visual scale.
+        // The imported map is much smaller than the original client coordinate space.
+        // Keep source walk/run timing but use one tenth of the previous map displacement.
+        const float GeneratedMapLocomotionScale = 0.01f;
+        const int LocalPlayerLayer = 8;
+        const float GroundOffset = 0.02f;
+        const float GroundProbeHeight = 1f;
+        const float GroundProbeDistance = 2f;
+
+        [Header("Movement Speed (persisted defaults are in Metin2PlayerMovementSettings)")]
+        [Min(0f)] public float walkSpeedMultiplier = 1f;
+        [Min(0f)] public float runSpeedMultiplier = 3f;
 
         Metin2RaceMotionSet motionSet;
         Animator animator;
         CharacterController characterController;
         Camera gameplayCamera;
-        Vector3 destination;
-        bool hasDestination;
+        Vector2 moveInput;
+        bool runInput;
+        float verticalVelocity;
         string combatMode;
         Metin2MotionRecord currentMotion;
         float motionStartedAt;
         bool comboQueued;
         int comboIndex;
         int nextMotionEvent;
+        bool clickMoveActive;
+        Vector3 clickMoveDestination;
+        float nextHeldAttackAt;
         readonly List<Metin2MotionRecord> skills = new List<Metin2MotionRecord>();
 
         public string CharacterName { get; private set; }
@@ -36,6 +51,12 @@ namespace Metin2Dev.Gameplay
             gameplayCamera = camera;
             CharacterName = characterName;
             characterController = GetComponent<CharacterController>();
+            Metin2PlayerMovementSettings settings = Resources.Load<Metin2PlayerMovementSettings>("Metin2PlayerMovementSettings");
+            if (settings != null)
+            {
+                walkSpeedMultiplier = settings.walkSpeedMultiplier;
+                runSpeedMultiplier = settings.runSpeedMultiplier;
+            }
             characterController.radius = 0.35f;
             characterController.height = 1.75f;
             characterController.center = new Vector3(0f, 0.875f, 0f);
@@ -49,6 +70,8 @@ namespace Metin2Dev.Gameplay
             if (skills.Count == 0)
                 skills.AddRange(motionSet.motions.Where(item => item != null && item.mode == "skill")
                     .GroupBy(item => item.name, StringComparer.OrdinalIgnoreCase).Select(group => group.First()));
+            animator.Rebind();
+            animator.Update(0f);
             PlayLoop("general", "wait", 0f);
         }
 
@@ -62,22 +85,51 @@ namespace Metin2Dev.Gameplay
 
         void ReadInput()
         {
-            Mouse mouse = Mouse.current;
             Keyboard keyboard = Keyboard.current;
+            moveInput = Vector2.zero;
+            runInput = false;
+            if (keyboard == null) return;
+
+            // Locomotion is driven by the original walk/run clips. A normal WASD press uses walk;
+            // holding Shift selects the source run clip, whose Accumulation / MotionDuration sets the speed.
+            if (keyboard.wKey.isPressed) moveInput.y += 1f;
+            if (keyboard.sKey.isPressed) moveInput.y -= 1f;
+            if (keyboard.dKey.isPressed) moveInput.x += 1f;
+            if (keyboard.aKey.isPressed) moveInput.x -= 1f;
+            if (moveInput.sqrMagnitude > 1f) moveInput.Normalize();
+            runInput = keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed;
+            if (moveInput.sqrMagnitude > 0.0001f) clickMoveActive = false;
+
+            Mouse mouse = Mouse.current;
             if (mouse != null && mouse.leftButton.wasPressedThisFrame &&
                 (EventSystem.current == null || !EventSystem.current.IsPointerOverGameObject()))
-            {
-                Ray ray = gameplayCamera.ScreenPointToRay(mouse.position.ReadValue());
-                if (Physics.Raycast(ray, out RaycastHit hit, 10000f, ~0, QueryTriggerInteraction.Ignore))
-                {
-                    destination = hit.point;
-                    hasDestination = true;
-                }
-            }
+                SetClickMoveDestination(mouse.position.ReadValue());
+            // Point-and-click is a run command; keyboard movement remains walk unless Shift is held.
+            if (clickMoveActive) runInput = true;
 
-            if (keyboard == null) return;
-            if (keyboard.spaceKey.wasPressedThisFrame) QueueAttack();
+            if (keyboard.spaceKey.wasPressedThisFrame)
+            {
+                QueueAttack();
+                nextHeldAttackAt = Time.time + 0.08f;
+            }
+            else if (keyboard.spaceKey.isPressed && Time.time >= nextHeldAttackAt)
+            {
+                // Holding Space continuously feeds the source combo input window; releasing is optional.
+                QueueAttack();
+                nextHeldAttackAt = Time.time + 0.08f;
+            }
+            else if (!keyboard.spaceKey.isPressed)
+            {
+                nextHeldAttackAt = 0f;
+            }
             if (keyboard.rKey.wasPressedThisFrame) CycleCombatMode();
+            if (keyboard.vKey.wasPressedThisFrame)
+            {
+                Metin2GameplayCamera cameraController = gameplayCamera != null
+                    ? gameplayCamera.GetComponent<Metin2GameplayCamera>()
+                    : null;
+                if (cameraController != null) cameraController.ToggleView();
+            }
             if (keyboard.digit1Key.wasPressedThisFrame || keyboard.numpad1Key.wasPressedThisFrame) ActivateQuickSlot(0);
             if (keyboard.digit2Key.wasPressedThisFrame || keyboard.numpad2Key.wasPressedThisFrame) ActivateQuickSlot(1);
             if (keyboard.digit3Key.wasPressedThisFrame || keyboard.numpad3Key.wasPressedThisFrame) ActivateQuickSlot(2);
@@ -93,31 +145,97 @@ namespace Metin2Dev.Gameplay
             if (index < 0 || index > 7) return;
             string[] sourceOrder = SourceSkillOrder();
             if (index >= sourceOrder.Length && index >= skills.Count) return;
+            TryPlaySkill(index);
+        }
+
+        void TryPlaySkill(int index)
+        {
+            string[] sourceOrder = SourceSkillOrder();
             Metin2MotionRecord skill = index < sourceOrder.Length ? Find("skill", sourceOrder[index]) : null;
             skill ??= index < skills.Count ? skills[index] : null;
-            if (skill != null) PlayAction(skill);
+            if (skill == null)
+            {
+                Debug.LogWarning("Selected character has no source skill mapped to key " + (index + 1) + ".");
+                return;
+            }
+            PlayAction(skill);
+        }
+
+        void SetClickMoveDestination(Vector2 screenPosition)
+        {
+            if (gameplayCamera == null) return;
+            int groundMask = ~(1 << LocalPlayerLayer);
+            Ray ray = gameplayCamera.ScreenPointToRay(screenPosition);
+            if (!Physics.Raycast(ray, out RaycastHit hit, 10000f, groundMask, QueryTriggerInteraction.Ignore)) return;
+            clickMoveDestination = hit.point;
+            clickMoveActive = true;
         }
 
         void UpdateMovement()
         {
-            if (!hasDestination || IsActionPlaying()) return;
-            Vector3 offset = destination - transform.position;
-            offset.y = 0f;
-            if (offset.sqrMagnitude < 0.04f)
+            if (IsActionPlaying())
             {
-                hasDestination = false;
-                PlayLoop(combatMode, "wait", 0.10f);
+                ApplyGravity();
                 return;
             }
 
-            Metin2MotionRecord run = Find(combatMode, "run") ?? Find("general", "run");
-            float speed = MotionSpeed(run, 4.5f);
-            Quaternion targetRotation = Quaternion.LookRotation(offset.normalized, Vector3.up);
-            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, 720f * Time.deltaTime);
-            Vector3 velocity = transform.forward * speed;
-            if (!characterController.isGrounded) velocity.y = -12f;
-            characterController.Move(velocity * Time.deltaTime);
-            if (currentMotion != run) PlayLoop(run, 0.10f);
+            Vector3 direction = Vector3.zero;
+            if (moveInput.sqrMagnitude > 0.0001f)
+            {
+                Vector3 forward = Vector3.ProjectOnPlane(gameplayCamera.transform.forward, Vector3.up).normalized;
+                Vector3 right = Vector3.ProjectOnPlane(gameplayCamera.transform.right, Vector3.up).normalized;
+                direction = (forward * moveInput.y) + (right * moveInput.x);
+            }
+            else if (clickMoveActive)
+            {
+                direction = Vector3.ProjectOnPlane(clickMoveDestination - transform.position, Vector3.up);
+                if (direction.sqrMagnitude <= 0.0064f) clickMoveActive = false;
+            }
+
+            if (direction.sqrMagnitude < 0.0001f)
+            {
+                PlayLoop(combatMode, "wait", 0.10f);
+                ApplyGravity();
+                return;
+            }
+
+            Metin2MotionRecord locomotion = LocomotionMotion();
+            if (locomotion == null) return;
+            direction.Normalize();
+
+            transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
+            // Run distance is deliberately derived from walk distance so Shift is always exactly 3x walking,
+            // even when a source run MSA has different authored accumulation.
+            float walkSpeed = MotionSpeed(Find(combatMode, "walk") ?? Find("general", "walk")) * walkSpeedMultiplier;
+            float speed = runInput && walkSpeed > 0f ? walkSpeed * runSpeedMultiplier : MotionSpeed(locomotion) * walkSpeedMultiplier;
+            ApplyGravity(direction * speed);
+            if (currentMotion != locomotion) PlayLoop(locomotion, 0.10f);
+        }
+
+        void ApplyGravity(Vector3 horizontalVelocity = default)
+        {
+            if (StickToGround())
+            {
+                verticalVelocity = 0f;
+                characterController.Move(horizontalVelocity * Time.deltaTime);
+                StickToGround();
+                return;
+            }
+
+            verticalVelocity += Physics.gravity.y * Time.deltaTime;
+            characterController.Move((horizontalVelocity + Vector3.up * verticalVelocity) * Time.deltaTime);
+        }
+
+        bool StickToGround()
+        {
+            int groundMask = ~(1 << LocalPlayerLayer);
+            Vector3 origin = transform.position + Vector3.up * GroundProbeHeight;
+            if (!Physics.Raycast(origin, Vector3.down, out RaycastHit hit, GroundProbeDistance, groundMask,
+                    QueryTriggerInteraction.Ignore)) return false;
+            Vector3 position = transform.position;
+            position.y = hit.point.y + GroundOffset;
+            transform.position = position;
+            return true;
         }
 
         void UpdateAction()
@@ -133,14 +251,14 @@ namespace Metin2Dev.Gameplay
                 comboQueued = false;
                 comboIndex = comboIndex % ComboNames().Length;
                 Metin2MotionRecord next = Find(combatMode, ComboNames()[comboIndex++]);
-                if (next != null) PlayAction(next);
+                if (next != null) PlayAction(next, 0.12f);
                 return;
             }
             if (elapsed >= Mathf.Max(0.01f, currentMotion.duration))
             {
                 currentMotion = null;
                 comboIndex = 0;
-                PlayLoop(combatMode, hasDestination ? "run" : "wait", 0.08f);
+                PlayLoop(moveInput.sqrMagnitude > 0.0001f ? LocomotionMotion() : Find(combatMode, "wait"), 0.08f);
             }
         }
 
@@ -150,7 +268,7 @@ namespace Metin2Dev.Gameplay
             {
                 comboIndex = 1;
                 Metin2MotionRecord first = Find(combatMode, ComboNames()[0]) ?? Find(combatMode, "attack") ?? Find("general", "attack");
-                if (first != null) PlayAction(first);
+                if (first != null) PlayAction(first, 0.06f);
                 return;
             }
             float elapsed = Time.time - motionStartedAt;
@@ -159,15 +277,14 @@ namespace Metin2Dev.Gameplay
             if (elapsed >= start && elapsed <= limit) comboQueued = true;
         }
 
-        void PlayAction(Metin2MotionRecord motion)
+        void PlayAction(Metin2MotionRecord motion, float fade = 0.08f)
         {
             if (motion == null || motion.clip == null) return;
-            hasDestination = false;
             currentMotion = motion;
             motionStartedAt = Time.time;
             nextMotionEvent = 0;
             comboQueued = false;
-            animator.CrossFade(StateName(motion), 0.04f, 0, 0f);
+            PlayAnimatorState(motion, fade);
         }
 
         void PlayLoop(string mode, string name, float fade)
@@ -181,7 +298,22 @@ namespace Metin2Dev.Gameplay
             currentMotion = motion;
             motionStartedAt = Time.time;
             nextMotionEvent = 0;
-            animator.CrossFade(StateName(motion), fade, 0, 0f);
+            PlayAnimatorState(motion, fade);
+        }
+
+        void PlayAnimatorState(Metin2MotionRecord motion, float fade)
+        {
+            int state = Animator.StringToHash(StateName(motion));
+            if (!animator.HasState(0, state))
+            {
+                Debug.LogError("Metin2 motion state is missing from the selected character controller: " + StateName(motion));
+                return;
+            }
+
+            // Do not rebind here: rebind resets the outgoing combo pose and causes a visible restart.
+            // The animator is bound once in Initialize; CrossFade now blends from the live source pose.
+            if (fade <= 0f) animator.Play(state, 0, 0f);
+            else animator.CrossFade(state, fade, 0, 0f);
         }
 
         bool IsActionPlaying()
@@ -218,10 +350,18 @@ namespace Metin2Dev.Gameplay
             PlayLoop(combatMode, "wait", 0.12f);
         }
 
+        Metin2MotionRecord LocomotionMotion()
+        {
+            string motionName = runInput ? "run" : "walk";
+            return Find(combatMode, motionName) ?? Find("general", motionName) ??
+                   Find(combatMode, runInput ? "walk" : "run") ?? Find("general", runInput ? "walk" : "run");
+        }
+
         string[] SourceSkillOrder()
         {
             switch (motionSet.characterClass)
             {
+                // These orders mirror root/playersettingmodule.py in the extracted client.
                 case Metin2Dev.Frontend.Metin2CharacterClass.Warrior:
                     return new[] { "samyeon", "palbang", "jeongwi", "geomgyeong", "tanhwan", "geompung" };
                 case Metin2Dev.Frontend.Metin2CharacterClass.Assassin:
@@ -235,11 +375,12 @@ namespace Metin2Dev.Gameplay
             }
         }
 
-        static float MotionSpeed(Metin2MotionRecord motion, float fallback)
+        static float MotionSpeed(Metin2MotionRecord motion)
         {
-            if (motion == null || motion.duration <= 0f) return fallback;
-            float distance = motion.accumulation.magnitude / SourceUnitsPerMetre;
-            return distance > 0.01f ? distance / motion.duration : fallback;
+            if (motion == null || motion.duration <= 0f) return 0f;
+            // ParseMotion already converts the source accumulation (centimetres) into Unity metres.
+            float distance = motion.accumulation.magnitude;
+            return distance > 0.01f ? (distance / motion.duration) * GeneratedMapLocomotionScale : 0f;
         }
 
         static float ComboLinkTime(Metin2MotionRecord motion)
