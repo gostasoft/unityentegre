@@ -1,3 +1,4 @@
+using Metin2Dev.Frontend;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -22,6 +23,8 @@ namespace Metin2Dev.Gameplay
         [SerializeField] RawImage[] experiencePoints = new RawImage[4];
         [SerializeField] Text hpText;
         [SerializeField] Text spText;
+        [SerializeField] RawImage[] skillIcons = new RawImage[8];
+        [SerializeField] Metin2MobileInputDriver inputDriver;
 
         [Header("Editor preview values")]
         [SerializeField, Min(1f)] float previewMaxHp = 590f;
@@ -37,6 +40,28 @@ namespace Metin2Dev.Gameplay
         readonly float[] experienceFullWidths = new float[4];
         Rect lastSafeArea;
         Vector2Int lastScreenSize;
+        Metin2CharacterClass displayedSkillClass = (Metin2CharacterClass)(-1);
+
+        static readonly Rect[] WarriorSkillIconRects =
+        {
+            new Rect(0, 96, 32, 32), new Rect(160, 64, 32, 32), new Rect(64, 64, 32, 32),
+            new Rect(192, 0, 32, 32), new Rect(96, 96, 32, 32), new Rect(32, 32, 32, 32),
+        };
+        static readonly Rect[] AssassinSkillIconRects =
+        {
+            new Rect(0, 0, 32, 32), new Rect(128, 32, 32, 32), new Rect(96, 0, 32, 32),
+            new Rect(192, 0, 32, 32), new Rect(0, 96, 32, 32), new Rect(32, 32, 32, 32),
+        };
+        static readonly Rect[] SuraSkillIconRects =
+        {
+            new Rect(128, 96, 32, 32), new Rect(64, 128, 32, 32), new Rect(224, 0, 32, 32),
+            new Rect(128, 0, 32, 32), new Rect(0, 64, 32, 32), new Rect(32, 96, 32, 32),
+        };
+        static readonly Rect[] ShamanSkillIconRects =
+        {
+            new Rect(0, 0, 32, 32), new Rect(32, 128, 32, 32), new Rect(96, 96, 32, 32),
+            new Rect(128, 32, 32, 32), new Rect(96, 0, 32, 32), new Rect(32, 32, 32, 32),
+        };
 
         public bool ShouldUseMobileLayout
         {
@@ -64,6 +89,7 @@ namespace Metin2Dev.Gameplay
             ApplySafeArea(true);
             ApplyVisibility();
             UpdateMeters();
+            UpdateSkillIcons(true);
         }
 
         void OnEnable()
@@ -73,6 +99,7 @@ namespace Metin2Dev.Gameplay
             ApplySafeArea(true);
             ApplyVisibility();
             UpdateMeters();
+            UpdateSkillIcons(true);
         }
 
         void OnValidate()
@@ -83,6 +110,7 @@ namespace Metin2Dev.Gameplay
             ApplySafeArea(true);
             ApplyVisibility();
             UpdateMeters();
+            UpdateSkillIcons(true);
         }
 
         void Update()
@@ -90,6 +118,7 @@ namespace Metin2Dev.Gameplay
             ApplySafeArea(false);
             ApplyVisibility();
             UpdateMeters();
+            UpdateSkillIcons(false);
         }
 
         void OnDestroy()
@@ -130,7 +159,9 @@ namespace Metin2Dev.Gameplay
             RawImage stamina,
             RawImage[] expPoints,
             Text hpValue,
-            Text spValue)
+            Text spValue,
+            RawImage[] mobileSkillIcons,
+            Metin2MobileInputDriver mobileInputDriver)
         {
             mobileCanvas = canvas;
             safeAreaRoot = safeArea;
@@ -140,9 +171,13 @@ namespace Metin2Dev.Gameplay
             experiencePoints = expPoints;
             hpText = hpValue;
             spText = spValue;
+            skillIcons = mobileSkillIcons;
+            displayedSkillClass = (Metin2CharacterClass)(-1);
+            inputDriver = mobileInputDriver;
             CacheFullWidths();
             ApplySafeArea(true);
             UpdateMeters();
+            UpdateSkillIcons(true);
         }
 
         void ApplyVisibility()
@@ -150,6 +185,8 @@ namespace Metin2Dev.Gameplay
             if (mobileCanvas == null) return;
             bool visible = gameplayVisible && ShouldUseMobileLayout;
             if (mobileCanvas.enabled != visible) mobileCanvas.enabled = visible;
+            if (inputDriver != null && inputDriver.enabled != visible)
+                inputDriver.enabled = visible;
         }
 
         void CacheFullWidths()
@@ -226,6 +263,53 @@ namespace Metin2Dev.Gameplay
             if (experiencePoints == null) return;
             for (int index = 0; index < experiencePoints.Length && index < 4; index++)
                 SetHorizontalFill(experiencePoints[index], experienceFullWidths[index], Mathf.Clamp01(experience * 4f - index));
+        }
+
+        void UpdateSkillIcons(bool force)
+        {
+            Metin2CharacterClass characterClass = Application.isPlaying
+                ? Metin2GameplaySession.CharacterClass
+                : Metin2CharacterClass.Warrior;
+            if (!force && displayedSkillClass == characterClass) return;
+            displayedSkillClass = characterClass;
+            Texture2D atlas = Resources.Load<Texture2D>("Metin2UI/" + SkillAtlasName(characterClass));
+            Rect[] sourceRects = SkillRects(characterClass);
+            if (atlas == null || skillIcons == null) return;
+            for (int index = 0; index < skillIcons.Length && index < sourceRects.Length; index++)
+            {
+                if (skillIcons[index] == null) continue;
+                skillIcons[index].texture = atlas;
+                skillIcons[index].uvRect = AtlasUv(atlas, sourceRects[index]);
+            }
+        }
+
+        static string SkillAtlasName(Metin2CharacterClass characterClass)
+        {
+            switch (characterClass)
+            {
+                case Metin2CharacterClass.Assassin: return "skillassassin";
+                case Metin2CharacterClass.Sura: return "skillsura";
+                case Metin2CharacterClass.Shaman: return "skillshaman";
+                default: return "skillwarrior";
+            }
+        }
+
+        static Rect[] SkillRects(Metin2CharacterClass characterClass)
+        {
+            switch (characterClass)
+            {
+                case Metin2CharacterClass.Assassin: return AssassinSkillIconRects;
+                case Metin2CharacterClass.Sura: return SuraSkillIconRects;
+                case Metin2CharacterClass.Shaman: return ShamanSkillIconRects;
+                default: return WarriorSkillIconRects;
+            }
+        }
+
+        static Rect AtlasUv(Texture2D texture, Rect topLeftPixels)
+        {
+            return new Rect(topLeftPixels.x / texture.width,
+                1f - (topLeftPixels.y + topLeftPixels.height) / texture.height,
+                topLeftPixels.width / texture.width, topLeftPixels.height / texture.height);
         }
 
         static void SetHorizontalFill(RawImage image, float fullWidth, float value)
