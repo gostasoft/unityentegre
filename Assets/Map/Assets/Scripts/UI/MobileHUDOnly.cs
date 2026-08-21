@@ -212,6 +212,11 @@ public sealed class MobileHUDOnly : MonoBehaviour
         ConfigureAction(mapTestTeleportButton, MobileHUDActionButton.Action.MapTestTeleport, 0);
         ConfigureAction(cameraViewButton, MobileHUDActionButton.Action.CameraView, 0);
 
+        MobileHUDStatusAndMinimap statusAndMinimap = GetComponent<MobileHUDStatusAndMinimap>();
+        if (statusAndMinimap == null)
+            statusAndMinimap = gameObject.AddComponent<MobileHUDStatusAndMinimap>();
+        statusAndMinimap.EnsureHierarchy();
+
         WireLegacyPlayerReferences();
         DisableGeneratedReplacementHud();
     }
