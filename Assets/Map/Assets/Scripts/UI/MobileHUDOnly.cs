@@ -204,6 +204,7 @@ public sealed class MobileHUDOnly : MonoBehaviour
         {
             skillButtons[index] = ResolveTransform(skillButtons[index], "Skill" + (index + 1));
             ConfigureAction(skillButtons[index], MobileHUDActionButton.Action.QuickSlot, index);
+            Metin2Dev.Gameplay.Metin2QuickSlotView.EnsureMobile(skillButtons[index], index);
         }
 
         EnsureMobileMenuButtons();
@@ -455,6 +456,8 @@ public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, 
     private Vector2 cameraPointerDownPosition;
     private bool cameraGestureActive;
     private bool cameraWasDragged;
+    private bool quickSlotGestureActive;
+    private bool quickSlotWasDragged;
 
     public void Configure(MobileHUDInputBridge bridge, Action configuredAction, int slot)
     {
@@ -486,7 +489,8 @@ public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, 
                 inputBridge?.SetAttackHeld(true);
                 break;
             case Action.QuickSlot:
-                inputBridge?.ActivateQuickSlot(quickSlot);
+                quickSlotGestureActive = true;
+                quickSlotWasDragged = false;
                 break;
             case Action.Inventory:
                 inputBridge?.ActivateMenu(true);
@@ -508,6 +512,11 @@ public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, 
 
     public void OnDrag(PointerEventData eventData)
     {
+        if (action == Action.QuickSlot && quickSlotGestureActive)
+        {
+            quickSlotWasDragged = true;
+            return;
+        }
         if (action != Action.CameraView || !cameraGestureActive)
             return;
         if (!cameraWasDragged && Mathf.Abs(eventData.position.y - cameraPointerDownPosition.y) < 8f)
@@ -518,6 +527,13 @@ public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, 
 
     public void OnPointerUp(PointerEventData eventData)
     {
+        if (action == Action.QuickSlot)
+        {
+            if (quickSlotGestureActive && !quickSlotWasDragged)
+                inputBridge?.ActivateQuickSlot(quickSlot);
+            quickSlotGestureActive = false;
+            return;
+        }
         if (action == Action.CameraView)
         {
             SetCameraPressedVisual(false);
@@ -548,6 +564,8 @@ public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, 
     {
         cameraGestureActive = false;
         cameraWasDragged = false;
+        quickSlotGestureActive = false;
+        quickSlotWasDragged = false;
         SetCameraPressedVisual(false);
         if (action == Action.Attack)
             inputBridge?.SetAttackHeld(false);
