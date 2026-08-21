@@ -15,52 +15,78 @@ namespace Metin2Dev.Editor
         private const string SourceScene = "Assets/Map/Assets/Scenes/Tapınak.unity";
         private const string OutputFolder = "Assets/Map/Assets/Resources";
         private const string OutputPrefab = OutputFolder + "/MobileHUD.prefab";
+        private static bool exportInProgress;
 
         static MobileHUDAuthoredPrefabExporter()
         {
-            EditorApplication.delayCall += ExportIfMissing;
+            EditorApplication.delayCall += ExportIfNeeded;
+            EditorSceneManager.sceneSaved -= OnSceneSaved;
+            EditorSceneManager.sceneSaved += OnSceneSaved;
         }
 
         [MenuItem("Tools/Metin2/UI/Export Authored MobileHUD Prefab")]
         public static void ExportAuthoredHud()
         {
-            Export(false);
+            Scene active = SceneManager.GetActiveScene();
+            string sourcePath = active.IsValid() && active.isLoaded && FindNamedTransform(active, "MobileHUD") != null
+                ? active.path
+                : SourceScene;
+            Export(false, sourcePath);
         }
 
-        private static void ExportIfMissing()
+        private static void ExportIfNeeded()
         {
-            Export(true);
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(OutputPrefab) == null)
+            {
+                Export(true, SourceScene);
+                return;
+            }
+            if (File.Exists(SourceScene) && File.GetLastWriteTimeUtc(SourceScene) > File.GetLastWriteTimeUtc(OutputPrefab))
+                Export(false, SourceScene);
         }
 
-        private static void Export(bool onlyIfMissing)
+        private static void OnSceneSaved(Scene scene)
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode || BuildPipeline.isBuildingPlayer)
+            if (exportInProgress || EditorApplication.isPlayingOrWillChangePlaymode || BuildPipeline.isBuildingPlayer ||
+                !scene.IsValid() || !scene.isLoaded || FindNamedTransform(scene, "MobileHUD") == null)
+                return;
+            string savedPath = scene.path;
+            EditorApplication.delayCall += () => Export(false, savedPath);
+        }
+
+        private static void Export(bool onlyIfMissing, string sourcePath)
+        {
+            if (exportInProgress || EditorApplication.isPlayingOrWillChangePlaymode || BuildPipeline.isBuildingPlayer)
                 return;
             if (onlyIfMissing && AssetDatabase.LoadAssetAtPath<GameObject>(OutputPrefab) != null)
                 return;
-            if (!File.Exists(SourceScene))
+            if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
             {
-                Debug.LogWarning("[MobileHUD] Source scene for the authored HUD was not found: " + SourceScene);
+                Debug.LogWarning("[MobileHUD] Source scene for the authored HUD was not found: " + sourcePath);
                 return;
             }
 
-            Scene source = SceneManager.GetSceneByPath(SourceScene);
+            exportInProgress = true;
+            Scene source = SceneManager.GetSceneByPath(sourcePath);
             bool openedForExport = !source.IsValid() || !source.isLoaded;
             Scene previousActive = SceneManager.GetActiveScene();
             try
             {
                 if (openedForExport)
-                    source = EditorSceneManager.OpenScene(SourceScene, OpenSceneMode.Additive);
+                    source = EditorSceneManager.OpenScene(sourcePath, OpenSceneMode.Additive);
 
                 Transform hud = FindNamedTransform(source, "MobileHUD");
                 if (hud == null)
                 {
-                    Debug.LogError("[MobileHUD] Canvas/MobileHUD was not found in " + SourceScene);
+                    Debug.LogError("[MobileHUD] Canvas/MobileHUD was not found in " + sourcePath);
                     return;
                 }
 
                 Directory.CreateDirectory(OutputFolder);
                 GameObject cleanHud = CloneHierarchy(hud.gameObject);
+                MobileHUDCanvasProfile profile = cleanHud.GetComponent<MobileHUDCanvasProfile>();
+                if (profile == null) profile = cleanHud.AddComponent<MobileHUDCanvasProfile>();
+                profile.CaptureFrom(hud.GetComponentInParent<Canvas>());
                 PrefabUtility.SaveAsPrefabAsset(cleanHud, OutputPrefab, out bool success);
                 UnityEngine.Object.DestroyImmediate(cleanHud);
                 if (!success)
@@ -81,6 +107,7 @@ namespace Metin2Dev.Editor
                     EditorSceneManager.CloseScene(source, true);
                 if (previousActive.IsValid() && previousActive.isLoaded)
                     SceneManager.SetActiveScene(previousActive);
+                exportInProgress = false;
             }
         }
 

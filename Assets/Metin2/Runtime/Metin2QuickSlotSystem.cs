@@ -230,7 +230,7 @@ namespace Metin2Dev.Gameplay
             Metin2QuickSlotView view = slotRoot.GetComponent<Metin2QuickSlotView>();
             if (view == null) view = slotRoot.gameObject.AddComponent<Metin2QuickSlotView>();
             Image cover = FindOrCreateCover(slotRoot);
-            RawImage icon = FindOrCreateIcon(slotRoot);
+            RawImage icon = FindOrCreateIcon(slotRoot, cover.transform);
             view.Configure(configuredSlot, icon, cover);
             return view;
         }
@@ -246,35 +246,43 @@ namespace Metin2Dev.Gameplay
                 rect.SetParent(parent, false);
                 rect.anchorMin = Vector2.zero;
                 rect.anchorMax = Vector2.one;
-                rect.offsetMin = new Vector2(6f, 6f);
-                rect.offsetMax = new Vector2(-6f, -6f);
+                rect.offsetMin = Vector2.zero;
+                rect.offsetMax = Vector2.zero;
                 cover = child.GetComponent<Image>();
-                cover.color = new Color(0.025f, 0.02f, 0.018f, 0.92f);
                 cover.raycastTarget = false;
-                Outline outline = child.AddComponent<Outline>();
-                outline.effectColor = new Color(0.55f, 0.42f, 0.20f, 0.85f);
-                outline.effectDistance = new Vector2(1f, -1f);
             }
+            Image authoredFrame = parent.GetComponent<Image>();
+            if (authoredFrame != null)
+            {
+                cover.sprite = authoredFrame.sprite;
+                cover.type = authoredFrame.type;
+                cover.preserveAspect = authoredFrame.preserveAspect;
+            }
+            cover.color = Color.white;
+            Mask mask = cover.GetComponent<Mask>();
+            if (mask == null) mask = cover.gameObject.AddComponent<Mask>();
+            mask.showMaskGraphic = false;
             cover.transform.SetAsLastSibling();
             return cover;
         }
 
-        static RawImage FindOrCreateIcon(Transform parent)
+        static RawImage FindOrCreateIcon(Transform slotRoot, Transform maskParent)
         {
-            Transform existing = parent.Find("Quick Slot Assigned Icon");
+            Transform existing = maskParent.Find("Quick Slot Assigned Icon");
+            if (existing == null) existing = slotRoot.Find("Quick Slot Assigned Icon");
             RawImage icon = existing != null ? existing.GetComponent<RawImage>() : null;
             if (icon == null)
             {
                 GameObject child = new GameObject("Quick Slot Assigned Icon", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
-                RectTransform rect = child.GetComponent<RectTransform>();
-                rect.SetParent(parent, false);
-                rect.anchorMin = Vector2.zero;
-                rect.anchorMax = Vector2.one;
-                rect.offsetMin = new Vector2(8f, 8f);
-                rect.offsetMax = new Vector2(-8f, -8f);
                 icon = child.GetComponent<RawImage>();
                 icon.raycastTarget = false;
             }
+            RectTransform rect = icon.rectTransform;
+            rect.SetParent(maskParent, false);
+            rect.anchorMin = new Vector2(0.14f, 0.14f);
+            rect.anchorMax = new Vector2(0.86f, 0.86f);
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
             icon.transform.SetAsLastSibling();
             return icon;
         }

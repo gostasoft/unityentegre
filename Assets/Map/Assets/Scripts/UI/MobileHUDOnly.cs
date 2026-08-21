@@ -9,6 +9,47 @@ using UnityEngine.InputSystem.UI;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
+/// <summary>Keeps the authored Canvas scaler settings with the MobileHUD prefab.</summary>
+[DisallowMultipleComponent]
+public sealed class MobileHUDCanvasProfile : MonoBehaviour
+{
+    [SerializeField] private int sortingOrder = 40000;
+    [SerializeField] private CanvasScaler.ScaleMode scaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+    [SerializeField] private Vector2 referenceResolution = new Vector2(1920f, 1080f);
+    [SerializeField] private CanvasScaler.ScreenMatchMode screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+    [SerializeField, Range(0f, 1f)] private float matchWidthOrHeight = 0.5f;
+    [SerializeField] private float scaleFactor = 1f;
+    [SerializeField] private float referencePixelsPerUnit = 100f;
+
+    public void CaptureFrom(Canvas sourceCanvas)
+    {
+        if (sourceCanvas == null) return;
+        sortingOrder = sourceCanvas.sortingOrder;
+        CanvasScaler scaler = sourceCanvas.GetComponent<CanvasScaler>();
+        if (scaler == null) return;
+        scaleMode = scaler.uiScaleMode;
+        referenceResolution = scaler.referenceResolution;
+        screenMatchMode = scaler.screenMatchMode;
+        matchWidthOrHeight = scaler.matchWidthOrHeight;
+        scaleFactor = scaler.scaleFactor;
+        referencePixelsPerUnit = scaler.referencePixelsPerUnit;
+    }
+
+    public void ApplyTo(Canvas targetCanvas)
+    {
+        if (targetCanvas == null) return;
+        targetCanvas.sortingOrder = sortingOrder;
+        CanvasScaler scaler = targetCanvas.GetComponent<CanvasScaler>();
+        if (scaler == null) scaler = targetCanvas.gameObject.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = scaleMode;
+        scaler.referenceResolution = referenceResolution;
+        scaler.screenMatchMode = screenMatchMode;
+        scaler.matchWidthOrHeight = matchWidthOrHeight;
+        scaler.scaleFactor = scaleFactor;
+        scaler.referencePixelsPerUnit = referencePixelsPerUnit;
+    }
+}
+
 /// <summary>
 /// Configures the existing Canvas/MobileHUD hierarchy. It does not create or replace the HUD artwork.
 /// </summary>
@@ -122,6 +163,8 @@ public sealed class MobileHUDOnly : MonoBehaviour
         GameObject hud = Instantiate(hudPrefab, canvasObject.transform, false);
         hud.name = "MobileHUD";
         hud.SetActive(true);
+        MobileHUDCanvasProfile canvasProfile = hud.GetComponent<MobileHUDCanvasProfile>();
+        if (canvasProfile != null) canvasProfile.ApplyTo(canvas);
         MobileHUDOnly controller = hud.GetComponent<MobileHUDOnly>();
         if (controller == null)
             controller = hud.AddComponent<MobileHUDOnly>();
