@@ -21,7 +21,7 @@ namespace Metin2Dev.Gameplay
         const float GroundProbeDistance = 2f;
 
         [Header("Movement Speed (persisted defaults are in Metin2PlayerMovementSettings)")]
-        [Min(0f)] public float walkSpeedMultiplier = 1f;
+        [Min(0f)] public float walkSpeedMultiplier = 2f;
         [Min(0f)] public float runSpeedMultiplier = 3f;
 
         Metin2RaceMotionSet motionSet;
