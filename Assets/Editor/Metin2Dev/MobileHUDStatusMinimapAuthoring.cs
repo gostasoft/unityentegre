@@ -14,6 +14,14 @@ namespace Metin2Dev.Editor
         static MobileHUDStatusMinimapAuthoring()
         {
             EditorApplication.delayCall += EnsureAuthoredPrefab;
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+        }
+
+        private static void OnPlayModeStateChanged(PlayModeStateChange state)
+        {
+            if (state == PlayModeStateChange.EnteredEditMode)
+                EditorApplication.delayCall += EnsureAuthoredPrefab;
         }
 
         [MenuItem("Tools/Metin2/UI/Update Authored Mobile HP and Minimap")]
