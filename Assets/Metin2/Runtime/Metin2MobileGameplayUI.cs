@@ -50,7 +50,8 @@ namespace Metin2Dev.Gameplay
             }
         }
 
-        public static bool IsMobileLayoutActive => instance != null && instance.ShouldUseMobileLayout;
+        public static bool IsMobileLayoutActive => global::MobileHUDOnly.IsAnyActive ||
+                                                   instance != null && instance.ShouldUseMobileLayout;
 
         public static void SetGlobalGameplayVisible(bool visible)
         {
@@ -104,6 +105,8 @@ namespace Metin2Dev.Gameplay
 
         public static Metin2MobileGameplayUI EnsureRuntimeInstance()
         {
+            // The project already contains an authored Canvas/MobileHUD. Do not cover it with a generated replacement.
+            if (global::MobileHUDOnly.IsAnyActive) return null;
             if (instance != null) return instance;
             instance = FindFirstObjectByType<Metin2MobileGameplayUI>(FindObjectsInactive.Include);
             if (instance != null) return instance;

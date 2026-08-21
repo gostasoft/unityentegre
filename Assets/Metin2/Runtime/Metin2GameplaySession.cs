@@ -26,6 +26,7 @@ namespace Metin2Dev.Gameplay
             GameObject hairPrefab, Texture2D bodyTexture, Texture2D faceTexture, Texture2D hairTexture)
         {
             if (character == null) return;
+            Metin2QuickSlotSystem.ClearAll();
             HasCharacter = true;
             CharacterName = character.characterName;
             CharacterClass = character.characterClass;
@@ -47,6 +48,7 @@ namespace Metin2Dev.Gameplay
         public static void UseEditorDefault()
         {
             if (HasCharacter) return;
+            Metin2QuickSlotSystem.ClearAll();
             HasCharacter = true;
             CharacterName = "Oyuncu";
             CharacterClass = Metin2CharacterClass.Warrior;

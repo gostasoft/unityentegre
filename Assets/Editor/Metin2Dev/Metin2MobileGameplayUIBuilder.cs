@@ -9,23 +9,11 @@ using UnityEngine.UI;
 
 namespace Metin2Dev.Editor
 {
-    [InitializeOnLoad]
     public static class Metin2MobileGameplayUIBuilder
     {
         const string PrefabFolder = "Assets/Metin2/UI/Resources";
         const string PrefabPath = PrefabFolder + "/Metin2MobileGameplayUI.prefab";
         const string TextureFolder = "Assets/Metin2/UI/Resources/Metin2UI";
-
-        static Metin2MobileGameplayUIBuilder()
-        {
-            EditorApplication.delayCall += EnsurePrefabAndOpenScene;
-            EditorSceneManager.sceneOpened += OnSceneOpened;
-        }
-
-        static void OnSceneOpened(Scene scene, OpenSceneMode mode)
-        {
-            EditorApplication.delayCall += EnsurePrefabAndOpenScene;
-        }
 
         [MenuItem("Tools/Metin2/UI/Create or Update Mobile Gameplay UI Prefab")]
         public static void CreateOrUpdatePrefab()
@@ -62,13 +50,6 @@ namespace Metin2Dev.Editor
         public static void CreateOrUpdatePrefabFromCommandLine()
         {
             BuildPrefab(true);
-        }
-
-        static void EnsurePrefabAndOpenScene()
-        {
-            if (EditorApplication.isPlayingOrWillChangePlaymode || PrefabStageUtility.GetCurrentPrefabStage() != null) return;
-            if (AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath) == null) BuildPrefab(false);
-            AddToOpenScene();
         }
 
         static void BuildPrefab(bool overwrite)

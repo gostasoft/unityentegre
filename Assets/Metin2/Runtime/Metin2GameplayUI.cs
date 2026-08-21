@@ -242,8 +242,6 @@ namespace Metin2Dev.Gameplay
 
         void BuildQuickSlots()
         {
-            Rect[] skillIcons = SkillIconRectsForClass(Metin2GameplaySession.CharacterClass);
-            Texture2D skillAtlas = SkillAtlasForClass(Metin2GameplaySession.CharacterClass);
             string[] keyNames = { "1", "2", "3", "4", "F1", "F2", "F3", "F4" };
             Rect[] keyRects =
             {
@@ -258,10 +256,11 @@ namespace Metin2Dev.Gameplay
                     new Vector2(0f, 0f), new Vector2(x, 2f), new Vector2(32f, 32f));
                 RawImage slotBase = CreateAtlasStretch(slot, "Slot Base", Texture("public"), new Rect(0, 348, 32, 32));
                 slotBase.raycastTarget = true;
-                if (index < skillIcons.Length)
-                    CreateAtlasStretch(slot, "Skill Icon", skillAtlas, skillIcons[index]);
-                else
-                    CreateImage(slot, "Empty", Vector2.zero, new Vector2(32f, 32f), new Color(0.02f, 0.02f, 0.02f, 0.42f));
+                Image empty = CreateImage(slot, "Empty", Vector2.zero, new Vector2(32f, 32f),
+                    new Color(0.02f, 0.02f, 0.02f, 0.72f));
+                RawImage assignedIcon = CreateAtlasStretch(slot, "Assigned Icon", null, new Rect(0f, 0f, 1f, 1f));
+                assignedIcon.raycastTarget = false;
+                assignedIcon.enabled = false;
 
                 Image highlight = CreateImage(slot, "Pressed", Vector2.zero, new Vector2(32f, 32f), new Color(1f, 0.78f, 0.20f, 0f));
                 highlight.raycastTarget = false;
@@ -272,6 +271,8 @@ namespace Metin2Dev.Gameplay
                 Button button = slot.gameObject.AddComponent<Button>();
                 button.targetGraphic = highlight;
                 button.onClick.AddListener(() => ActivateQuickSlot(captured));
+                Metin2QuickSlotView view = slot.gameObject.AddComponent<Metin2QuickSlotView>();
+                view.Configure(index, assignedIcon, empty);
             }
         }
 
@@ -424,8 +425,13 @@ namespace Metin2Dev.Gameplay
 
             for (int y = 0; y < 9; y++)
                 for (int x = 0; x < 5; x++)
-                    CreateAtlasTop(inventoryWindow, "Item Slot " + (y * 5 + x), Texture("public"), new Rect(0, 348, 32, 32),
-                        new Vector2(8f + x * 32f, -246f - y * 32f), new Vector2(32f, 32f));
+                {
+                    int itemIndex = y * 5 + x;
+                    RawImage itemSlot = CreateAtlasTop(inventoryWindow, "Item Slot " + itemIndex, Texture("public"),
+                        new Rect(0, 348, 32, 32), new Vector2(8f + x * 32f, -246f - y * 32f), new Vector2(32f, 32f));
+                    itemSlot.raycastTarget = true;
+                    itemSlot.gameObject.AddComponent<Metin2QuickSlotDragSource>().Clear();
+                }
 
             CreateAtlasTop(inventoryWindow, "Money Slot", Texture("public"), new Rect(0, 124, 130, 18),
                 new Vector2(28f, -538f), new Vector2(130f, 18f));
@@ -514,10 +520,14 @@ namespace Metin2Dev.Gameplay
             for (int index = 0; index < names.Length; index++)
             {
                 float y = -68f - index * 40f;
-                CreateAtlasTop(page, names[index] + " Icon", atlas, icons[index], new Vector2(18f, y), new Vector2(32f, 32f));
+                RawImage skillIcon = CreateAtlasTop(page, names[index] + " Icon", atlas, icons[index],
+                    new Vector2(18f, y), new Vector2(32f, 32f));
+                skillIcon.raycastTarget = true;
+                skillIcon.gameObject.AddComponent<Metin2QuickSlotDragSource>()
+                    .ConfigureSkill(index, names[index], atlas, skillIcon.uvRect);
                 CreateText(page, names[index], 11, TextAnchor.MiddleLeft, new Vector2(58f, y), new Vector2(142f, 18f), Color.white);
-                CreateText(page, index < 4 ? (index + 1).ToString() : "F" + (index - 3), 10, TextAnchor.MiddleCenter,
-                    new Vector2(205f, y), new Vector2(28f, 18f), new Color(0.96f, 0.78f, 0.33f));
+                CreateText(page, "Sürükle", 9, TextAnchor.MiddleCenter, new Vector2(194f, y), new Vector2(43f, 18f),
+                    new Color(0.96f, 0.78f, 0.33f));
             }
         }
 

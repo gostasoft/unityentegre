@@ -21,7 +21,7 @@ namespace Metin2Dev.Gameplay
         const float GroundProbeDistance = 2f;
 
         [Header("Movement Speed (persisted defaults are in Metin2PlayerMovementSettings)")]
-        [Min(0f)] public float walkSpeedMultiplier = 1f;
+        [Min(0f)] public float walkSpeedMultiplier = 2f;
         [Min(0f)] public float runSpeedMultiplier = 3f;
 
         Metin2RaceMotionSet motionSet;
@@ -143,9 +143,13 @@ namespace Metin2Dev.Gameplay
         public void ActivateQuickSlot(int index)
         {
             if (index < 0 || index > 7) return;
-            string[] sourceOrder = SourceSkillOrder();
-            if (index >= sourceOrder.Length && index >= skills.Count) return;
-            TryPlaySkill(index);
+            Metin2QuickSlotSystem.Activate(index, this);
+        }
+
+        public void ActivateSkill(int skillIndex)
+        {
+            if (skillIndex < 0) return;
+            TryPlaySkill(skillIndex);
         }
 
         void TryPlaySkill(int index)
