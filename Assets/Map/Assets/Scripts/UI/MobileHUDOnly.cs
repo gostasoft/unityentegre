@@ -52,6 +52,12 @@ public sealed class MobileHUDOnly : MonoBehaviour
         }
     }
 
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void PreventDeviceSleep()
+    {
+        Screen.sleepTimeout = SleepTimeout.NeverSleep;
+    }
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void InstallForLoadedScenes()
     {
