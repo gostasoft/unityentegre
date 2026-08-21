@@ -26,6 +26,7 @@ public sealed class MobileHUDOnly : MonoBehaviour
     [SerializeField] private Transform[] skillButtons = new Transform[8];
 
     private MobileHUDInputBridge inputBridge;
+    private float nextReferenceRefreshAt;
 
     public static bool IsAnyActive
     {
@@ -80,6 +81,14 @@ public sealed class MobileHUDOnly : MonoBehaviour
     private void OnEnable()
     {
         ConfigureExistingHierarchy();
+    }
+
+    private void Update()
+    {
+        if (!Application.isPlaying || Time.unscaledTime < nextReferenceRefreshAt)
+            return;
+        nextReferenceRefreshAt = Time.unscaledTime + 1f;
+        WireLegacyPlayerReferences();
     }
 
     private void ApplyPlatformVisibilityAndConfigure()
@@ -327,6 +336,10 @@ public sealed class MobileHUDInputBridge : MonoBehaviour
     private int pendingQuickSlot = -1;
     private bool attackWasQueued;
     private float nextAttackPulse;
+    private MonoBehaviour gameplayCamera;
+    private FieldInfo cameraYawField;
+    private FieldInfo cameraPitchField;
+    private FieldInfo cameraRotationSpeedField;
 
     public void Configure(MobileJoystick joystick, MobileCameraLook lookArea)
     {
@@ -399,6 +412,43 @@ public sealed class MobileHUDInputBridge : MonoBehaviour
         attackWasQueued = attackPulse;
 
         InputSystem.QueueStateEvent(mobileKeyboard, new KeyboardState(pressedKeys.ToArray()));
+    }
+
+    private void LateUpdate()
+    {
+        if (cameraLook == null || cameraLook.LookDelta.sqrMagnitude < 0.0001f)
+            return;
+        ResolveGameplayCamera();
+        if (gameplayCamera == null || cameraYawField == null || cameraPitchField == null)
+            return;
+
+        float speed = cameraRotationSpeedField != null
+            ? (float)cameraRotationSpeedField.GetValue(gameplayCamera)
+            : 0.18f;
+        Vector2 delta = cameraLook.LookDelta;
+        float yaw = (float)cameraYawField.GetValue(gameplayCamera) + delta.x * speed;
+        float pitch = Mathf.Clamp((float)cameraPitchField.GetValue(gameplayCamera) - delta.y * speed, -75f, 75f);
+        cameraYawField.SetValue(gameplayCamera, yaw);
+        cameraPitchField.SetValue(gameplayCamera, pitch);
+    }
+
+    private void ResolveGameplayCamera()
+    {
+        if (gameplayCamera != null)
+            return;
+        MonoBehaviour[] behaviours = FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (MonoBehaviour behaviour in behaviours)
+        {
+            if (behaviour == null || behaviour.GetType().FullName != "Metin2Dev.Gameplay.Metin2GameplayCamera")
+                continue;
+            gameplayCamera = behaviour;
+            Type type = behaviour.GetType();
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            cameraYawField = type.GetField("yaw", flags);
+            cameraPitchField = type.GetField("pitch", flags);
+            cameraRotationSpeedField = type.GetField("rotationSpeed", flags);
+            break;
+        }
     }
 
     private static Key QuickSlotKey(int index)
