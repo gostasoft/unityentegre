@@ -85,7 +85,9 @@ public sealed class MobileHUDOnly : MonoBehaviour
         {
             MobileHUDOnly[] controllers = Resources.FindObjectsOfTypeAll<MobileHUDOnly>();
             foreach (MobileHUDOnly controller in controllers)
-                if (controller != null && controller.gameObject.scene.IsValid() && controller.gameObject.activeInHierarchy)
+                if (controller != null && controller.gameObject.scene.IsValid()
+                    && controller.GetComponentInParent<Canvas>(true) != null
+                    && controller.gameObject.activeInHierarchy)
                     return true;
             return false;
         }
@@ -112,6 +114,8 @@ public sealed class MobileHUDOnly : MonoBehaviour
 
     private static void ConfigureEveryMobileHud()
     {
+        RemoveRuntimeDuplicateHuds();
+
         MobileHUDOnly[] controllers = Resources.FindObjectsOfTypeAll<MobileHUDOnly>();
         foreach (MobileHUDOnly controller in controllers)
         {
@@ -125,11 +129,50 @@ public sealed class MobileHUDOnly : MonoBehaviour
         {
             if (candidate == null || candidate.name != "MobileHUD" || !candidate.gameObject.scene.IsValid())
                 continue;
+            if (Application.isPlaying && candidate.GetComponentInParent<Canvas>(true) == null)
+                continue;
             if (candidate.GetComponent<MobileHUDOnly>() == null)
                 candidate.gameObject.AddComponent<MobileHUDOnly>().ApplyPlatformVisibilityAndConfigure();
         }
 
         EnsureAuthoredHudForActiveGameplayScene();
+    }
+
+    private static void RemoveRuntimeDuplicateHuds()
+    {
+        if (!Application.isPlaying)
+            return;
+
+        List<Transform> canvasHuds = new List<Transform>();
+        foreach (Transform candidate in Resources.FindObjectsOfTypeAll<Transform>())
+        {
+            if (candidate == null || candidate.name != "MobileHUD" || !candidate.gameObject.scene.IsValid())
+                continue;
+
+            if (candidate.GetComponentInParent<Canvas>(true) == null)
+            {
+                candidate.gameObject.SetActive(false);
+                Destroy(candidate.gameObject);
+                continue;
+            }
+            canvasHuds.Add(candidate);
+        }
+
+        if (canvasHuds.Count <= 1)
+            return;
+
+        Transform keeper = canvasHuds.Find(candidate =>
+            string.Equals(candidate.gameObject.scene.name, "Tapınak", StringComparison.OrdinalIgnoreCase));
+        if (keeper == null)
+            keeper = canvasHuds[0];
+
+        foreach (Transform candidate in canvasHuds)
+        {
+            if (candidate == null || candidate == keeper)
+                continue;
+            candidate.gameObject.SetActive(false);
+            Destroy(candidate.gameObject);
+        }
     }
 
     private static void EnsureAuthoredHudForActiveGameplayScene()

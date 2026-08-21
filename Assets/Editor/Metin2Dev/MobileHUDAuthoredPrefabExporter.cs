@@ -19,19 +19,62 @@ namespace Metin2Dev.Editor
 
         static MobileHUDAuthoredPrefabExporter()
         {
-            EditorApplication.delayCall += ExportIfNeeded;
+            EditorApplication.delayCall += Initialize;
             EditorSceneManager.sceneSaved -= OnSceneSaved;
             EditorSceneManager.sceneSaved += OnSceneSaved;
+        }
+
+        private static void Initialize()
+        {
+            RemoveHudCopiesFromLoadedNonSourceScenes();
+            ExportIfNeeded();
         }
 
         [MenuItem("Tools/Metin2/UI/Export Authored MobileHUD Prefab")]
         public static void ExportAuthoredHud()
         {
-            Scene active = SceneManager.GetActiveScene();
-            string sourcePath = active.IsValid() && active.isLoaded && FindNamedTransform(active, "MobileHUD") != null
-                ? active.path
-                : SourceScene;
-            Export(false, sourcePath);
+            Export(false, SourceScene);
+        }
+
+        [MenuItem("Tools/Metin2/UI/Remove Duplicate MobileHUD Copies")]
+        public static void RemoveHudCopiesFromLoadedNonSourceScenes()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode || BuildPipeline.isBuildingPlayer)
+                return;
+
+            int removed = 0;
+            for (int sceneIndex = 0; sceneIndex < SceneManager.sceneCount; sceneIndex++)
+            {
+                Scene scene = SceneManager.GetSceneAt(sceneIndex);
+                if (!scene.IsValid() || !scene.isLoaded || SameAssetPath(scene.path, SourceScene))
+                    continue;
+
+                List<GameObject> copies = new List<GameObject>();
+                foreach (GameObject root in scene.GetRootGameObjects())
+                {
+                    foreach (Transform candidate in root.GetComponentsInChildren<Transform>(true))
+                    {
+                        if (candidate != null && string.Equals(candidate.name, "MobileHUD",
+                                StringComparison.OrdinalIgnoreCase))
+                            copies.Add(candidate.gameObject);
+                    }
+                }
+
+                if (copies.Count == 0)
+                    continue;
+                foreach (GameObject copy in copies)
+                {
+                    if (copy == null)
+                        continue;
+                    Undo.DestroyObjectImmediate(copy);
+                    removed++;
+                }
+                EditorSceneManager.MarkSceneDirty(scene);
+            }
+
+            if (removed > 0)
+                Debug.Log("[MobileHUD] Removed " + removed
+                    + " duplicate HUD copies. Tapınak/Canvas/MobileHUD remains the authored source.");
         }
 
         private static void ExportIfNeeded()
@@ -48,10 +91,16 @@ namespace Metin2Dev.Editor
         private static void OnSceneSaved(Scene scene)
         {
             if (exportInProgress || EditorApplication.isPlayingOrWillChangePlaymode || BuildPipeline.isBuildingPlayer ||
-                !scene.IsValid() || !scene.isLoaded || FindNamedTransform(scene, "MobileHUD") == null)
+                !scene.IsValid() || !scene.isLoaded || !SameAssetPath(scene.path, SourceScene) ||
+                FindNamedTransform(scene, "MobileHUD") == null)
                 return;
-            string savedPath = scene.path;
-            EditorApplication.delayCall += () => Export(false, savedPath);
+            EditorApplication.delayCall += () => Export(false, SourceScene);
+        }
+
+        private static bool SameAssetPath(string left, string right)
+        {
+            return string.Equals((left ?? string.Empty).Replace('\\', '/'),
+                (right ?? string.Empty).Replace('\\', '/'), StringComparison.OrdinalIgnoreCase);
         }
 
         private static void Export(bool onlyIfMissing, string sourcePath)
@@ -135,8 +184,18 @@ namespace Metin2Dev.Editor
             GameObject clone = CloneObjects(sourceRoot, null, map, componentPairs);
             foreach (KeyValuePair<Component, Component> pair in componentPairs)
             {
-                EditorUtility.CopySerialized(pair.Key, pair.Value);
-                RemapObjectReferences(pair.Value, map);
+                if (pair.Key == null || pair.Value == null)
+                    continue;
+                try
+                {
+                    EditorUtility.CopySerialized(pair.Key, pair.Value);
+                    RemapObjectReferences(pair.Value, map);
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogWarning("[MobileHUD] Skipping component data " + pair.Key.GetType().Name
+                        + ": " + exception.Message);
+                }
             }
             return clone;
         }
@@ -146,8 +205,9 @@ namespace Metin2Dev.Editor
             List<KeyValuePair<Component, Component>> componentPairs)
         {
             bool usesRectTransform = source.transform is RectTransform;
-            GameObject clone = new GameObject(source.name,
-                usesRectTransform ? typeof(RectTransform) : typeof(Transform));
+            GameObject clone = usesRectTransform
+                ? new GameObject(source.name, typeof(RectTransform))
+                : new GameObject(source.name);
             clone.layer = source.layer;
             clone.tag = source.tag;
             clone.SetActive(source.activeSelf);
@@ -174,11 +234,17 @@ namespace Metin2Dev.Editor
                 Type componentType = sourceComponent.GetType();
                 string typeName = componentType.Name;
                 if (typeName == "MobileHUDOnly" || typeName == "MobileHUDInputBridge"
-                    || typeName == "MobileHUDActionButton")
+                    || typeName == "MobileHUDActionButton" || typeName == "Metin2QuickSlotView"
+                    || typeName == "Metin2QuickSlotDragSource")
                     continue;
                 try
                 {
                     Component cloneComponent = clone.AddComponent(componentType);
+                    if (cloneComponent == null)
+                    {
+                        Debug.LogWarning("[MobileHUD] Skipping component Unity could not clone: " + typeName);
+                        continue;
+                    }
                     map[sourceComponent] = cloneComponent;
                     componentPairs.Add(new KeyValuePair<Component, Component>(sourceComponent, cloneComponent));
                 }
