@@ -30,6 +30,7 @@ public sealed class MobileHUDOnly : MonoBehaviour
     [SerializeField] private RectTransform mobileMenuButtons;
     [SerializeField] private Transform inventoryButton;
     [SerializeField] private Transform characterButton;
+    [SerializeField] private Transform mapTestTeleportButton;
 
     private MobileHUDInputBridge inputBridge;
     private float nextReferenceRefreshAt;
@@ -147,6 +148,7 @@ public sealed class MobileHUDOnly : MonoBehaviour
         EnsureMobileMenuButtons();
         ConfigureAction(inventoryButton, MobileHUDActionButton.Action.Inventory, 0);
         ConfigureAction(characterButton, MobileHUDActionButton.Action.Character, 0);
+        ConfigureAction(mapTestTeleportButton, MobileHUDActionButton.Action.MapTestTeleport, 0);
 
         WireLegacyPlayerReferences();
         DisableGeneratedReplacementHud();
@@ -277,13 +279,15 @@ public sealed class MobileHUDOnly : MonoBehaviour
             mobileMenuButtons.anchorMax = Vector2.one;
             mobileMenuButtons.pivot = Vector2.one;
             mobileMenuButtons.anchoredPosition = new Vector2(-18f, -18f);
-            mobileMenuButtons.sizeDelta = new Vector2(96f, 48f);
+            mobileMenuButtons.sizeDelta = new Vector2(144f, 48f);
         }
 
         inventoryButton = EnsureMenuButton(inventoryButton, "InventoryButton", taskbar,
             new Rect(455f, 0f, 32f, 32f), new Vector2(-24f, -24f));
         characterButton = EnsureMenuButton(characterButton, "CharacterButton", taskbar,
             new Rect(263f, 0f, 32f, 32f), new Vector2(-72f, -24f));
+        mapTestTeleportButton = EnsureMenuButton(mapTestTeleportButton, "MapTestTeleportButton", taskbar,
+            new Rect(320f, 127f, 32f, 32f), new Vector2(-120f, -24f));
     }
 
     private Transform EnsureMenuButton(Transform current, string buttonName, Texture2D atlas,
@@ -364,7 +368,7 @@ public sealed class MobileHUDOnly : MonoBehaviour
 [DisallowMultipleComponent]
 public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerExitHandler
 {
-    public enum Action { Attack, QuickSlot, Inventory, Character }
+    public enum Action { Attack, QuickSlot, Inventory, Character, MapTestTeleport }
 
     [SerializeField] private Action action;
     [SerializeField, Range(0, 7)] private int quickSlot;
@@ -395,6 +399,9 @@ public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, 
             case Action.Character:
                 inputBridge?.ActivateMenu(false);
                 break;
+            case Action.MapTestTeleport:
+                MobileMapTestTeleporter.TeleportNext();
+                break;
         }
     }
 
@@ -414,6 +421,170 @@ public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, 
     {
         if (action == Action.Attack)
             inputBridge?.SetAttackHeld(false);
+    }
+}
+
+/// <summary>
+/// Temporary mobile-only map test helper. It prefers authored SpawnPoints in the active
+/// hierarchy and otherwise advances to the next gameplay map included in Build Settings.
+/// </summary>
+public static class MobileMapTestTeleporter
+{
+    private const string SpawnRootName = "SpawnPoints";
+    private static bool sceneLoadInProgress;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetState()
+    {
+        sceneLoadInProgress = false;
+    }
+
+    public static void TeleportNext()
+    {
+        if (!Application.isPlaying || sceneLoadInProgress)
+            return;
+
+        Scene activeScene = SceneManager.GetActiveScene();
+        if (!activeScene.IsValid() || !activeScene.isLoaded)
+            return;
+
+        if (TryTeleportToAuthoredSpawn(activeScene))
+            return;
+
+        List<int> mapBuildIndices = FindGameplayMapBuildIndices();
+        if (mapBuildIndices.Count == 0)
+        {
+            Debug.LogWarning("[MobileHUD] No gameplay map scene is enabled in Build Settings.");
+            return;
+        }
+
+        int currentListIndex = mapBuildIndices.IndexOf(activeScene.buildIndex);
+        int nextListIndex = currentListIndex >= 0 ? (currentListIndex + 1) % mapBuildIndices.Count : 0;
+        int nextBuildIndex = mapBuildIndices[nextListIndex];
+        if (nextBuildIndex == activeScene.buildIndex && mapBuildIndices.Count == 1)
+        {
+            Debug.LogWarning("[MobileHUD] Only the active gameplay map is enabled in Build Settings.");
+            return;
+        }
+
+        string nextPath = SceneUtility.GetScenePathByBuildIndex(nextBuildIndex);
+        sceneLoadInProgress = true;
+        AsyncOperation operation = SceneManager.LoadSceneAsync(nextBuildIndex, LoadSceneMode.Single);
+        if (operation == null)
+        {
+            sceneLoadInProgress = false;
+            Debug.LogWarning("[MobileHUD] Could not load test map: " + nextPath);
+            return;
+        }
+        operation.completed += _ => sceneLoadInProgress = false;
+        Debug.Log("[MobileHUD] Loading test map: " + nextPath);
+    }
+
+    private static bool TryTeleportToAuthoredSpawn(Scene scene)
+    {
+        Transform player = FindPlayer(scene);
+        if (player == null)
+            return false;
+
+        List<Transform> spawns = new List<Transform>();
+        foreach (GameObject root in scene.GetRootGameObjects())
+        {
+            Transform spawnRoot = FindDeep(root.transform, SpawnRootName);
+            if (spawnRoot == null)
+                continue;
+            CollectSpawnChildren(spawnRoot, spawns);
+        }
+        if (spawns.Count == 0)
+            return false;
+
+        int nearestIndex = 0;
+        float nearestDistance = float.PositiveInfinity;
+        for (int index = 0; index < spawns.Count; index++)
+        {
+            float distance = (spawns[index].position - player.position).sqrMagnitude;
+            if (distance >= nearestDistance)
+                continue;
+            nearestDistance = distance;
+            nearestIndex = index;
+        }
+
+        int destinationIndex = spawns.Count > 1 ? (nearestIndex + 1) % spawns.Count : 0;
+        if (spawns.Count == 1 && nearestDistance < 16f)
+            return false;
+
+        Vector3 destination = Ground(spawns[destinationIndex].position);
+        CharacterController controller = player.GetComponent<CharacterController>();
+        bool wasEnabled = controller != null && controller.enabled;
+        if (controller != null)
+            controller.enabled = false;
+        player.SetPositionAndRotation(destination, spawns[destinationIndex].rotation);
+        if (controller != null)
+            controller.enabled = wasEnabled;
+        Physics.SyncTransforms();
+        Debug.Log("[MobileHUD] Teleported to hierarchy spawn: " + spawns[destinationIndex].name);
+        return true;
+    }
+
+    private static List<int> FindGameplayMapBuildIndices()
+    {
+        List<int> result = new List<int>();
+        for (int buildIndex = 0; buildIndex < SceneManager.sceneCountInBuildSettings; buildIndex++)
+        {
+            string path = SceneUtility.GetScenePathByBuildIndex(buildIndex).Replace('\\', '/');
+            string name = System.IO.Path.GetFileNameWithoutExtension(path);
+            bool generatedMap = path.IndexOf("/Metin2/Generated/Scenes/", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool mapScene = name.StartsWith("metin2_map", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("map_", StringComparison.OrdinalIgnoreCase);
+            if (generatedMap || mapScene)
+                result.Add(buildIndex);
+        }
+        return result;
+    }
+
+    private static Transform FindPlayer(Scene scene)
+    {
+        foreach (GameObject root in scene.GetRootGameObjects())
+            if (root.name.StartsWith("Player -", StringComparison.Ordinal))
+                return root.transform;
+
+        MonoBehaviour[] behaviours = UnityEngine.Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        foreach (MonoBehaviour behaviour in behaviours)
+            if (behaviour != null && behaviour.gameObject.scene == scene
+                && (behaviour.GetType().Name == "Metin2PlayerController" || behaviour.GetType().Name == "PlayerMovement"))
+                return behaviour.transform;
+        return null;
+    }
+
+    private static void CollectSpawnChildren(Transform root, List<Transform> result)
+    {
+        for (int index = 0; index < root.childCount; index++)
+        {
+            Transform child = root.GetChild(index);
+            result.Add(child);
+            CollectSpawnChildren(child, result);
+        }
+    }
+
+    private static Transform FindDeep(Transform root, string objectName)
+    {
+        if (string.Equals(root.name, objectName, StringComparison.OrdinalIgnoreCase))
+            return root;
+        for (int index = 0; index < root.childCount; index++)
+        {
+            Transform found = FindDeep(root.GetChild(index), objectName);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+
+    private static Vector3 Ground(Vector3 point)
+    {
+        if (Physics.Raycast(point + Vector3.up * 5000f, Vector3.down, out RaycastHit hit, 10000f, ~0,
+                QueryTriggerInteraction.Ignore))
+            return hit.point + Vector3.up * 0.1f;
+        return point;
     }
 }
 
