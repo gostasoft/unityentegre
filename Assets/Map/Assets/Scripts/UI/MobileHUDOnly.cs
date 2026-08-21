@@ -12,6 +12,7 @@ using UnityEngine.UI;
 /// <summary>
 /// Configures the existing Canvas/MobileHUD hierarchy. It does not create or replace the HUD artwork.
 /// </summary>
+[ExecuteAlways]
 [DisallowMultipleComponent]
 public sealed class MobileHUDOnly : MonoBehaviour
 {
@@ -24,6 +25,11 @@ public sealed class MobileHUDOnly : MonoBehaviour
     [SerializeField] private MobileCameraLook cameraLookArea;
     [SerializeField] private Transform attackButton;
     [SerializeField] private Transform[] skillButtons = new Transform[8];
+
+    [Header("Mobile menu shortcuts")]
+    [SerializeField] private RectTransform mobileMenuButtons;
+    [SerializeField] private Transform inventoryButton;
+    [SerializeField] private Transform characterButton;
 
     private MobileHUDInputBridge inputBridge;
     private float nextReferenceRefreshAt;
@@ -138,6 +144,10 @@ public sealed class MobileHUDOnly : MonoBehaviour
             ConfigureAction(skillButtons[index], MobileHUDActionButton.Action.QuickSlot, index);
         }
 
+        EnsureMobileMenuButtons();
+        ConfigureAction(inventoryButton, MobileHUDActionButton.Action.Inventory, 0);
+        ConfigureAction(characterButton, MobileHUDActionButton.Action.Character, 0);
+
         WireLegacyPlayerReferences();
         DisableGeneratedReplacementHud();
     }
@@ -179,7 +189,8 @@ public sealed class MobileHUDOnly : MonoBehaviour
         if (eventSystem == null)
         {
             GameObject eventObject = new GameObject("EventSystem", typeof(EventSystem));
-            UnityEngine.Object.DontDestroyOnLoad(eventObject);
+            if (Application.isPlaying)
+                UnityEngine.Object.DontDestroyOnLoad(eventObject);
             eventSystem = eventObject.GetComponent<EventSystem>();
         }
 
@@ -245,6 +256,77 @@ public sealed class MobileHUDOnly : MonoBehaviour
         button.Configure(inputBridge, action, quickSlot);
     }
 
+    private void EnsureMobileMenuButtons()
+    {
+        if (mobileMenuButtons == null)
+            mobileMenuButtons = ResolveTransform(null, "MobileMenuButtons") as RectTransform;
+
+        Texture2D taskbar = Resources.Load<Texture2D>("Metin2UI/taskbar");
+        if (taskbar == null)
+        {
+            Debug.LogWarning("[MobileHUD] Original taskbar texture is missing; menu shortcuts were not created.", this);
+            return;
+        }
+
+        if (mobileMenuButtons == null)
+        {
+            GameObject menuObject = new GameObject("MobileMenuButtons", typeof(RectTransform));
+            mobileMenuButtons = menuObject.GetComponent<RectTransform>();
+            mobileMenuButtons.SetParent(transform, false);
+            mobileMenuButtons.anchorMin = Vector2.one;
+            mobileMenuButtons.anchorMax = Vector2.one;
+            mobileMenuButtons.pivot = Vector2.one;
+            mobileMenuButtons.anchoredPosition = new Vector2(-18f, -18f);
+            mobileMenuButtons.sizeDelta = new Vector2(96f, 48f);
+        }
+
+        inventoryButton = EnsureMenuButton(inventoryButton, "InventoryButton", taskbar,
+            new Rect(455f, 0f, 32f, 32f), new Vector2(-24f, -24f));
+        characterButton = EnsureMenuButton(characterButton, "CharacterButton", taskbar,
+            new Rect(263f, 0f, 32f, 32f), new Vector2(-72f, -24f));
+    }
+
+    private Transform EnsureMenuButton(Transform current, string buttonName, Texture2D atlas,
+        Rect sourcePixels, Vector2 position)
+    {
+        Transform target = current != null ? current : FindDescendant(mobileMenuButtons, buttonName);
+        if (target == null)
+        {
+            GameObject buttonObject = new GameObject(buttonName, typeof(RectTransform), typeof(RawImage));
+            RectTransform rect = buttonObject.GetComponent<RectTransform>();
+            rect.SetParent(mobileMenuButtons, false);
+            rect.anchorMin = Vector2.one;
+            rect.anchorMax = Vector2.one;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = new Vector2(42f, 42f);
+            target = rect;
+        }
+
+        RawImage icon = target.GetComponent<RawImage>();
+        if (icon == null)
+            icon = target.gameObject.AddComponent<RawImage>();
+        icon.texture = atlas;
+        icon.uvRect = AtlasUv(atlas, sourcePixels);
+        icon.raycastTarget = true;
+
+        Button button = target.GetComponent<Button>();
+        if (button == null)
+            button = target.gameObject.AddComponent<Button>();
+        button.targetGraphic = icon;
+        button.transition = Selectable.Transition.ColorTint;
+        button.navigation = new Navigation { mode = Navigation.Mode.None };
+        return target;
+    }
+
+    private static Rect AtlasUv(Texture2D texture, Rect topLeftPixels)
+    {
+        return new Rect(topLeftPixels.x / texture.width,
+            1f - (topLeftPixels.y + topLeftPixels.height) / texture.height,
+            topLeftPixels.width / texture.width,
+            topLeftPixels.height / texture.height);
+    }
+
     private void WireLegacyPlayerReferences()
     {
         MonoBehaviour[] behaviours = FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
@@ -282,7 +364,7 @@ public sealed class MobileHUDOnly : MonoBehaviour
 [DisallowMultipleComponent]
 public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerExitHandler
 {
-    public enum Action { Attack, QuickSlot }
+    public enum Action { Attack, QuickSlot, Inventory, Character }
 
     [SerializeField] private Action action;
     [SerializeField, Range(0, 7)] private int quickSlot;
@@ -299,10 +381,21 @@ public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, 
     {
         if (inputBridge == null)
             inputBridge = GetComponentInParent<MobileHUDInputBridge>();
-        if (action == Action.Attack)
-            inputBridge?.SetAttackHeld(true);
-        else
-            inputBridge?.ActivateQuickSlot(quickSlot);
+        switch (action)
+        {
+            case Action.Attack:
+                inputBridge?.SetAttackHeld(true);
+                break;
+            case Action.QuickSlot:
+                inputBridge?.ActivateQuickSlot(quickSlot);
+                break;
+            case Action.Inventory:
+                inputBridge?.ActivateMenu(true);
+                break;
+            case Action.Character:
+                inputBridge?.ActivateMenu(false);
+                break;
+        }
     }
 
     public void OnPointerUp(PointerEventData eventData)
@@ -334,6 +427,7 @@ public sealed class MobileHUDInputBridge : MonoBehaviour
     private Keyboard mobileKeyboard;
     private bool attackHeld;
     private int pendingQuickSlot = -1;
+    private Key pendingMenuKey = Key.None;
     private bool attackWasQueued;
     private float nextAttackPulse;
     private MonoBehaviour gameplayCamera;
@@ -362,6 +456,31 @@ public sealed class MobileHUDInputBridge : MonoBehaviour
         pendingQuickSlot = Mathf.Clamp(index, 0, 7);
     }
 
+    public void ActivateMenu(bool inventory)
+    {
+        if (TryInvokeGameplayMenu(inventory ? "ToggleInventory" : "ToggleCharacter"))
+            return;
+        pendingMenuKey = inventory ? Key.I : Key.C;
+    }
+
+    private static bool TryInvokeGameplayMenu(string methodName)
+    {
+        MonoBehaviour[] behaviours = FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (MonoBehaviour behaviour in behaviours)
+        {
+            if (behaviour == null || behaviour.GetType().FullName != "Metin2Dev.Gameplay.Metin2GameplayUI")
+                continue;
+            MethodInfo method = behaviour.GetType().GetMethod(methodName,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, Type.EmptyTypes, null);
+            if (method == null)
+                continue;
+            method.Invoke(behaviour, null);
+            return true;
+        }
+        return false;
+    }
+
     private void OnEnable()
     {
         if (!Application.isPlaying || activeBridge != null && activeBridge != this)
@@ -379,6 +498,7 @@ public sealed class MobileHUDInputBridge : MonoBehaviour
         mobileKeyboard = null;
         attackHeld = false;
         pendingQuickSlot = -1;
+        pendingMenuKey = Key.None;
         if (activeBridge == this)
             activeBridge = null;
     }
@@ -402,6 +522,11 @@ public sealed class MobileHUDInputBridge : MonoBehaviour
         Key quickSlotKey = QuickSlotKey(quickSlot);
         if (quickSlotKey != Key.None)
             pressedKeys.Add(quickSlotKey);
+
+        Key menuKey = pendingMenuKey;
+        pendingMenuKey = Key.None;
+        if (menuKey != Key.None)
+            pressedKeys.Add(menuKey);
 
         bool attackPulse = attackHeld && !attackWasQueued && Time.unscaledTime >= nextAttackPulse;
         if (attackPulse)
