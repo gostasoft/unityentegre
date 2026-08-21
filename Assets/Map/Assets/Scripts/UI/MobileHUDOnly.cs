@@ -35,8 +35,6 @@ public sealed class MobileHUDOnly : MonoBehaviour
     [SerializeField] private Transform mapTestTeleportButton;
     [SerializeField] private Transform cameraViewButton;
 
-    private static Texture2D cameraViewIcon;
-
     private MobileHUDInputBridge inputBridge;
     private float nextReferenceRefreshAt;
 
@@ -357,94 +355,9 @@ public sealed class MobileHUDOnly : MonoBehaviour
             new Rect(263f, 0f, 32f, 32f), new Vector2(-72f, -24f));
         mapTestTeleportButton = EnsureMenuButton(mapTestTeleportButton, "MapTestTeleportButton", taskbar,
             new Rect(320f, 127f, 32f, 32f), new Vector2(-120f, -24f));
-        cameraViewButton = EnsureCameraViewButton(cameraViewButton, new Vector2(-168f, -24f));
-    }
-
-    private Transform EnsureCameraViewButton(Transform current, Vector2 position)
-    {
-        Transform target = current != null ? current : FindDescendant(mobileMenuButtons, "CameraViewButton");
-        if (target == null)
-        {
-            GameObject buttonObject = new GameObject("CameraViewButton", typeof(RectTransform), typeof(RawImage));
-            RectTransform rect = buttonObject.GetComponent<RectTransform>();
-            rect.SetParent(mobileMenuButtons, false);
-            rect.anchorMin = Vector2.one;
-            rect.anchorMax = Vector2.one;
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = position;
-            rect.sizeDelta = new Vector2(42f, 42f);
-            target = rect;
-        }
-
-        RawImage icon = target.GetComponent<RawImage>();
-        if (icon == null)
-            icon = target.gameObject.AddComponent<RawImage>();
-        if (cameraViewIcon == null)
-            cameraViewIcon = CreateCameraViewIcon();
-        icon.texture = cameraViewIcon;
-        icon.uvRect = new Rect(0f, 0f, 1f, 1f);
-        icon.raycastTarget = true;
-
-        Button button = target.GetComponent<Button>();
-        if (button == null)
-            button = target.gameObject.AddComponent<Button>();
-        button.targetGraphic = icon;
-        button.transition = Selectable.Transition.ColorTint;
-        button.navigation = new Navigation { mode = Navigation.Mode.None };
-        return target;
-    }
-
-    private static Texture2D CreateCameraViewIcon()
-    {
-        const int size = 32;
-        Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false, true)
-        {
-            name = "Mobile Camera View Icon",
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-        Color32[] pixels = new Color32[size * size];
-        Color32 panel = new Color32(25, 23, 18, 245);
-        Color32 outer = new Color32(45, 31, 18, 255);
-        Color32 border = new Color32(174, 135, 77, 255);
-        Color32 metal = new Color32(238, 221, 174, 255);
-        Color32 glass = new Color32(105, 157, 169, 255);
-        Color32 dark = new Color32(15, 18, 17, 255);
-
-        for (int y = 1; y < size - 1; y++)
-        for (int x = 1; x < size - 1; x++)
-            pixels[y * size + x] = x == 1 || x == size - 2 || y == 1 || y == size - 2 ? border : panel;
-        for (int y = 3; y < size - 3; y++)
-        {
-            pixels[y * size + 3] = outer;
-            pixels[y * size + size - 4] = outer;
-        }
-
-        for (int y = 10; y <= 23; y++)
-        for (int x = 6; x <= 26; x++)
-            pixels[y * size + x] = x == 6 || x == 26 || y == 10 || y == 23 ? metal : dark;
-        for (int y = 7; y <= 10; y++)
-        for (int x = 10; x <= 16; x++)
-            pixels[y * size + x] = metal;
-        for (int y = 11; y <= 15; y++)
-        for (int x = 4; x <= 6; x++)
-            pixels[y * size + x] = border;
-
-        for (int y = 11; y <= 22; y++)
-        for (int x = 11; x <= 22; x++)
-        {
-            int dx = x - 16;
-            int dy = y - 16;
-            int distance = dx * dx + dy * dy;
-            if (distance <= 32) pixels[y * size + x] = metal;
-            if (distance <= 20) pixels[y * size + x] = glass;
-            if (distance <= 7) pixels[y * size + x] = dark;
-        }
-        pixels[18 * size + 18] = metal;
-        texture.SetPixels32(pixels);
-        texture.Apply(false, true);
-        return texture;
+        // Original Metin2 mouse_button_camera_01.sub: TaskBar.tga, 424/87 - 456/119.
+        cameraViewButton = EnsureMenuButton(cameraViewButton, "CameraViewButton", taskbar,
+            new Rect(424f, 87f, 32f, 32f), new Vector2(-168f, -24f));
     }
 
     private Transform EnsureMenuButton(Transform current, string buttonName, Texture2D atlas,
@@ -523,19 +436,39 @@ public sealed class MobileHUDOnly : MonoBehaviour
 }
 
 [DisallowMultipleComponent]
-public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerExitHandler
+public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler,
+    IPointerExitHandler, IDragHandler
 {
     public enum Action { Attack, QuickSlot, Inventory, Character, MapTestTeleport, CameraView }
 
     [SerializeField] private Action action;
     [SerializeField, Range(0, 7)] private int quickSlot;
     private MobileHUDInputBridge inputBridge;
+    private RawImage cameraIcon;
+    private Rect cameraNormalUv;
+    private Rect cameraPressedUv;
+    private Vector2 cameraPointerDownPosition;
+    private bool cameraGestureActive;
+    private bool cameraWasDragged;
 
     public void Configure(MobileHUDInputBridge bridge, Action configuredAction, int slot)
     {
         inputBridge = bridge;
         action = configuredAction;
         quickSlot = Mathf.Clamp(slot, 0, 7);
+        if (action == Action.CameraView)
+        {
+            cameraIcon = GetComponent<RawImage>();
+            if (cameraIcon != null && cameraIcon.texture != null)
+            {
+                cameraNormalUv = cameraIcon.uvRect;
+                Texture texture = cameraIcon.texture;
+                cameraPressedUv = new Rect(0f,
+                    1f - 159f / texture.height,
+                    32f / texture.width,
+                    32f / texture.height);
+            }
+        }
     }
 
     public void OnPointerDown(PointerEventData eventData)
@@ -560,25 +493,57 @@ public sealed class MobileHUDActionButton : MonoBehaviour, IPointerDownHandler, 
                 MobileMapTestTeleporter.TeleportNext();
                 break;
             case Action.CameraView:
-                inputBridge?.ToggleCameraView();
+                cameraGestureActive = true;
+                cameraWasDragged = false;
+                cameraPointerDownPosition = eventData.position;
+                SetCameraPressedVisual(true);
                 break;
         }
     }
 
+    public void OnDrag(PointerEventData eventData)
+    {
+        if (action != Action.CameraView || !cameraGestureActive)
+            return;
+        if (!cameraWasDragged && Mathf.Abs(eventData.position.y - cameraPointerDownPosition.y) < 8f)
+            return;
+        cameraWasDragged = true;
+        inputBridge?.AdjustCameraZoom(eventData.delta.y);
+    }
+
     public void OnPointerUp(PointerEventData eventData)
     {
+        if (action == Action.CameraView)
+        {
+            SetCameraPressedVisual(false);
+            if (cameraGestureActive && !cameraWasDragged)
+                inputBridge?.ToggleCameraView();
+            cameraGestureActive = false;
+            return;
+        }
         if (action == Action.Attack)
             inputBridge?.SetAttackHeld(false);
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
+        if (action == Action.CameraView)
+            SetCameraPressedVisual(false);
         if (action == Action.Attack)
             inputBridge?.SetAttackHeld(false);
     }
 
+    private void SetCameraPressedVisual(bool pressed)
+    {
+        if (cameraIcon != null)
+            cameraIcon.uvRect = pressed ? cameraPressedUv : cameraNormalUv;
+    }
+
     private void OnDisable()
     {
+        cameraGestureActive = false;
+        cameraWasDragged = false;
+        SetCameraPressedVisual(false);
         if (action == Action.Attack)
             inputBridge?.SetAttackHeld(false);
     }
@@ -766,6 +731,7 @@ public sealed class MobileHUDInputBridge : MonoBehaviour
     private FieldInfo cameraPitchField;
     private FieldInfo cameraRotationSpeedField;
     private MethodInfo cameraToggleViewMethod;
+    private MethodInfo cameraAdjustZoomMethod;
 
     public void Configure(MobileJoystick joystick, MobileCameraLook lookArea)
     {
@@ -800,6 +766,13 @@ public sealed class MobileHUDInputBridge : MonoBehaviour
         ResolveGameplayCamera();
         if (gameplayCamera != null && cameraToggleViewMethod != null)
             cameraToggleViewMethod.Invoke(gameplayCamera, null);
+    }
+
+    public void AdjustCameraZoom(float verticalDragDelta)
+    {
+        ResolveGameplayCamera();
+        if (gameplayCamera != null && cameraAdjustZoomMethod != null)
+            cameraAdjustZoomMethod.Invoke(gameplayCamera, new object[] { verticalDragDelta });
     }
 
     private static bool TryInvokeGameplayMenu(string methodName)
@@ -912,6 +885,8 @@ public sealed class MobileHUDInputBridge : MonoBehaviour
             cameraPitchField = type.GetField("pitch", flags);
             cameraRotationSpeedField = type.GetField("rotationSpeed", flags);
             cameraToggleViewMethod = type.GetMethod("ToggleView", flags, null, Type.EmptyTypes, null);
+            cameraAdjustZoomMethod = type.GetMethod("AdjustThirdPersonDistance", flags, null,
+                new[] { typeof(float) }, null);
             break;
         }
     }

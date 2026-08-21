@@ -50,6 +50,14 @@ namespace Metin2Dev.Gameplay
             if (target != null) SnapToTarget();
         }
 
+        public void AdjustThirdPersonDistance(float verticalDragDelta)
+        {
+            if (Mathf.Approximately(verticalDragDelta, 0f)) return;
+            if (firstPerson) ToggleView();
+            distance = Mathf.Clamp(distance - verticalDragDelta * zoomSpeed,
+                minThirdPersonDistance, maxThirdPersonDistance);
+        }
+
         public void SetFirstPersonHiddenRenderers(Renderer[] renderers)
         {
             firstPersonHiddenRenderers = renderers;
