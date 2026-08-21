@@ -16,6 +16,8 @@ using UnityEngine.UI;
 [DisallowMultipleComponent]
 public sealed class MobileHUDOnly : MonoBehaviour
 {
+    private const string AuthoredHudResource = "MobileHUD";
+
     [Header("Preview")]
     [SerializeField] private bool showInEditorPlayMode = true;
     [SerializeField] private bool showInDesktopBuild;
@@ -78,6 +80,56 @@ public sealed class MobileHUDOnly : MonoBehaviour
             if (candidate.GetComponent<MobileHUDOnly>() == null)
                 candidate.gameObject.AddComponent<MobileHUDOnly>().ApplyPlatformVisibilityAndConfigure();
         }
+
+        EnsureAuthoredHudForActiveGameplayScene();
+    }
+
+    private static void EnsureAuthoredHudForActiveGameplayScene()
+    {
+        if (!Application.isPlaying || IsAnyActive)
+            return;
+
+        Scene scene = SceneManager.GetActiveScene();
+        if (!IsGameplayScene(scene))
+            return;
+
+        GameObject hudPrefab = Resources.Load<GameObject>(AuthoredHudResource);
+        if (hudPrefab == null)
+        {
+            Debug.LogError("[MobileHUD] Authored MobileHUD prefab is missing from Resources.");
+            return;
+        }
+
+        GameObject canvasObject = new GameObject("Mobile Gameplay Canvas", typeof(RectTransform), typeof(Canvas),
+            typeof(CanvasScaler), typeof(GraphicRaycaster));
+        SceneManager.MoveGameObjectToScene(canvasObject, scene);
+        Canvas canvas = canvasObject.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 40000;
+        CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.matchWidthOrHeight = 0.5f;
+
+        GameObject hud = Instantiate(hudPrefab, canvasObject.transform, false);
+        hud.name = "MobileHUD";
+        hud.SetActive(true);
+        MobileHUDOnly controller = hud.GetComponent<MobileHUDOnly>();
+        if (controller == null)
+            controller = hud.AddComponent<MobileHUDOnly>();
+        controller.ApplyPlatformVisibilityAndConfigure();
+    }
+
+    private static bool IsGameplayScene(Scene scene)
+    {
+        if (!scene.IsValid() || !scene.isLoaded)
+            return false;
+        string path = (scene.path ?? string.Empty).Replace('\\', '/');
+        return path.IndexOf("/Metin2/Generated/Scenes/", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("/Map/Assets/Scenes/", StringComparison.OrdinalIgnoreCase) >= 0
+            || scene.name.StartsWith("metin2_map", StringComparison.OrdinalIgnoreCase)
+            || scene.name.StartsWith("map_", StringComparison.OrdinalIgnoreCase);
     }
 
     private void Awake()
@@ -129,6 +181,8 @@ public sealed class MobileHUDOnly : MonoBehaviour
         moveJoystick = ResolveComponent(moveJoystick, "MoveJoystick");
         cameraLookArea = ResolveComponent(cameraLookArea, "CameraLookArea");
         attackButton = ResolveTransform(attackButton, "AttackButton");
+        if (attackButton == null)
+            attackButton = ResolveTransform(null, "AttackButoon");
 
         if (inputBridge == null)
             inputBridge = GetComponent<MobileHUDInputBridge>();
