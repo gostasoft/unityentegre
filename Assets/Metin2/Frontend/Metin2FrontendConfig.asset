@@ -15,6 +15,7 @@ MonoBehaviour:
   loginBackground: {fileID: 2800000, guid: 666dc42a92eea8648ad8e2d498fc5288, type: 3}
   serverBackground: {fileID: 2800000, guid: ca1c1ad409799b641965ebd7d9e554d5, type: 3}
   selectionBackground: {fileID: 2800000, guid: 166ee515a53348a468c8a50db76fdd0c, type: 3}
+  empireMap: {fileID: 2800000, guid: 0179e980efdc61a4cbfb3089f0493fa7, type: 3}
   loadingBackgrounds:
   - {fileID: 2800000, guid: 9dc492ce46f2772468238cb15978e650, type: 3}
   - {fileID: 2800000, guid: 1955849c67fcaaf4cb5ebdc2e84bf0d5, type: 3}

@@ -17,6 +17,7 @@ namespace Metin2Dev.Frontend.Editor
         const string BackgroundRoot = ArtRoot + "/Backgrounds";
         const string CharacterRoot = ArtRoot + "/Characters";
         const string UiRoot = ArtRoot + "/UI";
+        const string EmpireMapPath = Root + "/Resources/Metin2Frontend/empire_map.png";
         const string ConfigPath = Root + "/Metin2FrontendConfig.asset";
         const string SceneFolder = Root + "/Scenes";
         const string ScenePath = SceneFolder + "/Metin2_Intro.unity";
@@ -46,9 +47,13 @@ namespace Metin2Dev.Frontend.Editor
         [MenuItem("Tools/Metin2/Reset Local Login Data", priority = 22)]
         public static void ResetLocalData()
         {
+            string lastAccount = PlayerPrefs.GetString("Metin2.Frontend.LastAccount.v2", string.Empty);
+            if (!string.IsNullOrWhiteSpace(lastAccount))
+                PlayerPrefs.DeleteKey("Metin2.Frontend.Account.v2." + lastAccount.Trim().ToLowerInvariant());
+            PlayerPrefs.DeleteKey("Metin2.Frontend.LastAccount.v2");
             PlayerPrefs.DeleteKey("Metin2.Frontend.Save.v1");
             PlayerPrefs.Save();
-            Debug.Log("[Metin2 Frontend] Local account, empire and character slots were reset.");
+            Debug.Log("[Metin2 Frontend] Last local account, empire and character slots were reset.");
         }
 
         public static void BuildFromCommandLine()
@@ -94,6 +99,7 @@ namespace Metin2Dev.Frontend.Editor
             config.loginBackground = Load<Texture2D>(BackgroundRoot + "/login.jpg", missing);
             config.serverBackground = Load<Texture2D>(BackgroundRoot + "/serverlist.jpg", missing);
             config.selectionBackground = Load<Texture2D>(BackgroundRoot + "/select.jpg", missing);
+            config.empireMap = Load<Texture2D>(EmpireMapPath, missing);
             config.loadingBackgrounds = new Texture2D[4];
             for (int i = 0; i < config.loadingBackgrounds.Length; i++)
                 config.loadingBackgrounds[i] = Load<Texture2D>(BackgroundRoot + "/loading" + i + ".jpg", missing);
@@ -149,19 +155,21 @@ namespace Metin2Dev.Frontend.Editor
 
         static void ImportFrontendArt()
         {
-            foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { BackgroundRoot, CharacterRoot, UiRoot }))
+            foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { BackgroundRoot, CharacterRoot, UiRoot,
+                         Root + "/Resources" }))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
                 if (importer == null) continue;
                 bool background = path.StartsWith(BackgroundRoot, StringComparison.OrdinalIgnoreCase);
                 bool userInterface = path.StartsWith(UiRoot, StringComparison.OrdinalIgnoreCase);
+                bool empireMap = string.Equals(path, EmpireMapPath, StringComparison.OrdinalIgnoreCase);
                 bool hair = Path.GetFileNameWithoutExtension(path).IndexOf("hair", StringComparison.OrdinalIgnoreCase) >= 0;
                 importer.textureType = userInterface ? TextureImporterType.Sprite : TextureImporterType.Default;
                 importer.sRGBTexture = true;
-                importer.mipmapEnabled = !background && !userInterface;
-                importer.alphaIsTransparency = hair || userInterface;
-                importer.wrapMode = background || (userInterface && path.EndsWith("inventory_board.png", StringComparison.OrdinalIgnoreCase))
+                importer.mipmapEnabled = !background && !userInterface && !empireMap;
+                importer.alphaIsTransparency = hair || userInterface || empireMap;
+                importer.wrapMode = background || empireMap || (userInterface && path.EndsWith("inventory_board.png", StringComparison.OrdinalIgnoreCase))
                     ? TextureWrapMode.Clamp
                     : TextureWrapMode.Repeat;
                 importer.filterMode = FilterMode.Bilinear;
@@ -221,8 +229,8 @@ namespace Metin2Dev.Frontend.Editor
             report.AppendLine();
             report.AppendLine("Backgrounds: " + Count(config.loadingBackgrounds.Cast<UnityEngine.Object>().Concat(new UnityEngine.Object[]
             {
-                config.loginBackground, config.serverBackground, config.selectionBackground,
-            })) + "/7");
+                config.loginBackground, config.serverBackground, config.selectionBackground, config.empireMap,
+            })) + "/8");
             report.AppendLine("Race previews: " + Count(config.racePrefabs.Cast<UnityEngine.Object>()) + "/8");
             report.AppendLine("Hair previews: " + Count(config.hairPrefabs.Cast<UnityEngine.Object>()) + "/8");
             report.AppendLine("Body textures: " + Count(config.bodyTextures.Cast<UnityEngine.Object>()) + "/8");

@@ -65,6 +65,7 @@ namespace Metin2Dev.Frontend
         public Texture2D loginBackground;
         public Texture2D serverBackground;
         public Texture2D selectionBackground;
+        public Texture2D empireMap;
         public Texture2D[] loadingBackgrounds = new Texture2D[4];
 
         [Header("Original client UI patterns")]
