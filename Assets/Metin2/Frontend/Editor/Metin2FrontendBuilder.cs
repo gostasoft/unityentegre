@@ -128,9 +128,13 @@ namespace Metin2Dev.Frontend.Editor
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             scene.name = "Metin2_Intro";
+            config = AssetDatabase.LoadAssetAtPath<Metin2FrontendConfig>(ConfigPath);
+            if (config == null)
+                throw new InvalidOperationException("Frontend config could not be reloaded: " + ConfigPath);
             GameObject root = new GameObject("Metin2 Frontend");
             Metin2FrontendController controller = root.AddComponent<Metin2FrontendController>();
             controller.Configure(config);
+            controller.BuildEditableHierarchy();
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
 

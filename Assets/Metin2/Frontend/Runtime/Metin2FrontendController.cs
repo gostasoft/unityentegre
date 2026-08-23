@@ -16,6 +16,8 @@ namespace Metin2Dev.Frontend
     {
         const string LastAccountKey = "Metin2.Frontend.LastAccount.v2";
         const string AccountSavePrefix = "Metin2.Frontend.Account.v2.";
+        const string EditableLayoutName = "Metin2 Frontend Editable Layout";
+        const string RuntimeCanvasName = "Metin2 Frontend Runtime Canvas";
         const float ReferenceWidth = 1024f;
         const float ReferenceHeight = 768f;
 
@@ -46,6 +48,7 @@ namespace Metin2Dev.Frontend
         [SerializeField] Metin2FrontendConfig config;
 
         readonly Dictionary<Texture2D, Sprite> spriteCache = new Dictionary<Texture2D, Sprite>();
+        readonly Dictionary<string, EditableRectLayout> editableLayouts = new Dictionary<string, EditableRectLayout>();
         readonly string[] servers = { "Metin3", "Yerel Test" };
         readonly string[] channels = { "CH1", "CH2", "CH3", "CH4" };
 
@@ -62,6 +65,18 @@ namespace Metin2Dev.Frontend
         Metin2Gender draftGender = Metin2Gender.Male;
         string draftName = string.Empty;
         Coroutine loadingRoutine;
+        bool authoringLayout;
+
+        struct EditableRectLayout
+        {
+            public Vector2 anchorMin;
+            public Vector2 anchorMax;
+            public Vector2 pivot;
+            public Vector2 anchoredPosition;
+            public Vector2 sizeDelta;
+            public Vector3 localScale;
+            public Vector3 localEulerAngles;
+        }
 
         public Metin2FrontendConfig Config => config;
 
@@ -80,12 +95,13 @@ namespace Metin2Dev.Frontend
             }
 
             Scene frontendScene = gameObject.scene;
+            CaptureEditableLayout();
             DontDestroyOnLoad(gameObject);
             IsolateFrontend(frontendScene);
             uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             LoadLastAccountHint();
             CreateEventSystem();
-            CreateCanvas();
+            CreateCanvas(RuntimeCanvasName);
             ShowLogin();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (Environment.GetCommandLineArgs().Any(argument => argument == "-metin2FrontendCapture"))
@@ -167,9 +183,9 @@ namespace Metin2Dev.Frontend
             inputModule.AssignDefaultActions();
         }
 
-        void CreateCanvas()
+        void CreateCanvas(string canvasName)
         {
-            GameObject canvasObject = new GameObject("Metin2 Frontend Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            GameObject canvasObject = new GameObject(canvasName, typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             canvasObject.transform.SetParent(transform, false);
             canvas = canvasObject.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -188,17 +204,27 @@ namespace Metin2Dev.Frontend
                 StopCoroutine(loadingRoutine);
                 loadingRoutine = null;
             }
-            if (screenRoot != null)
+            if (screenRoot != null && !authoringLayout)
             {
                 screenRoot.gameObject.SetActive(false);
                 Destroy(screenRoot.gameObject);
             }
 
             screenRoot = CreateRect(canvas.transform, name, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-            Image backdrop = screenRoot.gameObject.AddComponent<Image>();
-            backdrop.sprite = SpriteFor(background);
-            backdrop.color = Color.white;
-            backdrop.raycastTarget = false;
+            if (authoringLayout)
+            {
+                RawImage backdrop = screenRoot.gameObject.AddComponent<RawImage>();
+                backdrop.texture = background;
+                backdrop.color = Color.white;
+                backdrop.raycastTarget = false;
+            }
+            else
+            {
+                Image backdrop = screenRoot.gameObject.AddComponent<Image>();
+                backdrop.sprite = SpriteFor(background);
+                backdrop.color = Color.white;
+                backdrop.raycastTarget = false;
+            }
             return screenRoot;
         }
 
@@ -274,10 +300,22 @@ namespace Metin2Dev.Frontend
             Texture2D empireMapTexture = config.empireMap != null
                 ? config.empireMap
                 : Resources.Load<Texture2D>("Metin2Frontend/empire_map");
-            Image map = CreateImage(panel, "Original Empire Map", SpriteFor(empireMapTexture),
-                new Vector2(75f, -58f), new Vector2(600f, 410f), Color.white);
-            map.preserveAspect = true;
-            map.raycastTarget = false;
+            if (authoringLayout)
+            {
+                RectTransform mapRect = CreateRect(panel, "Original Empire Map", new Vector2(0f, 1f),
+                    new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(75f, -58f), new Vector2(600f, 410f));
+                RawImage map = mapRect.gameObject.AddComponent<RawImage>();
+                map.texture = empireMapTexture;
+                map.color = Color.white;
+                map.raycastTarget = false;
+            }
+            else
+            {
+                Image map = CreateImage(panel, "Original Empire Map", SpriteFor(empireMapTexture),
+                    new Vector2(75f, -58f), new Vector2(600f, 410f), Color.white);
+                map.preserveAspect = true;
+                map.raycastTarget = false;
+            }
 
             // These hit regions follow the three painted territories in the original map.
             CreateEmpireMapButton(panel, Metin2Empire.Chunjo, new Vector2(116f, -116f), new Vector2(190f, 126f));
@@ -404,11 +442,16 @@ namespace Metin2Dev.Frontend
             RectTransform previewRect = CreateRect(root, "Selected Character FBX Preview",
                 new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
                 new Vector2(310f, -24f), new Vector2(520f, 650f));
-            RawImage rawImage = previewRect.gameObject.AddComponent<RawImage>();
-            rawImage.raycastTarget = false;
-            Metin2CharacterPreview preview = previewRect.gameObject.AddComponent<Metin2CharacterPreview>();
-            preview.Initialize(rawImage);
-            if (selected != null) preview.Show(config, selected.characterClass, selected.gender);
+            if (authoringLayout)
+                CreatePreviewPlaceholder(previewRect, "SEÇİLEN KARAKTER FBX ALANI");
+            else
+            {
+                RawImage rawImage = previewRect.gameObject.AddComponent<RawImage>();
+                rawImage.raycastTarget = false;
+                Metin2CharacterPreview preview = previewRect.gameObject.AddComponent<Metin2CharacterPreview>();
+                preview.Initialize(rawImage);
+                if (selected != null) preview.Show(config, selected.characterClass, selected.gender);
+            }
             previewRect.SetAsFirstSibling();
 
             RectTransform infoPanel = CreatePanel(root, "Selected Character Information",
@@ -483,11 +526,16 @@ namespace Metin2Dev.Frontend
             RectTransform previewRect = CreateRect(root, "Creation Character FBX Preview",
                 new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
                 new Vector2(250f, -20f), new Vector2(560f, 670f));
-            RawImage rawImage = previewRect.gameObject.AddComponent<RawImage>();
-            rawImage.raycastTarget = false;
-            Metin2CharacterPreview preview = previewRect.gameObject.AddComponent<Metin2CharacterPreview>();
-            preview.Initialize(rawImage);
-            preview.Show(config, draftClass, draftGender);
+            if (authoringLayout)
+                CreatePreviewPlaceholder(previewRect, "OLUŞTURULAN KARAKTER FBX ALANI");
+            else
+            {
+                RawImage rawImage = previewRect.gameObject.AddComponent<RawImage>();
+                rawImage.raycastTarget = false;
+                Metin2CharacterPreview preview = previewRect.gameObject.AddComponent<Metin2CharacterPreview>();
+                preview.Initialize(rawImage);
+                preview.Show(config, draftClass, draftGender);
+            }
             previewRect.SetAsFirstSibling();
 
             RectTransform panel = CreatePanel(root, "Character Registration", new Vector2(754f, -116f),
@@ -614,7 +662,141 @@ namespace Metin2Dev.Frontend
             fillRect.pivot = new Vector2(0f, 0.5f);
             fillRect.anchoredPosition = Vector2.zero;
             fillRect.sizeDelta = Vector2.zero;
-            loadingRoutine = StartCoroutine(LoadGame(character, status, fillRect, footer));
+            if (authoringLayout)
+            {
+                status.text = "Harita hazırlanıyor...";
+                SetProgress(fillRect, 0.65f);
+            }
+            else loadingRoutine = StartCoroutine(LoadGame(character, status, fillRect, footer));
+        }
+
+        void CreatePreviewPlaceholder(RectTransform previewRect, string label)
+        {
+            Image background = previewRect.gameObject.AddComponent<Image>();
+            background.color = new Color(0f, 0f, 0f, 0.16f);
+            background.raycastTarget = false;
+            Outline outline = previewRect.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0.72f, 0.52f, 0.22f, 0.55f);
+            outline.effectDistance = new Vector2(1f, -1f);
+            Text placeholder = CreateText(previewRect, label + "\n(Oyunda gerçek model gösterilir)", 14, FontStyle.Bold,
+                TextAnchor.MiddleCenter, Vector2.zero, Vector2.zero, new Color(0.90f, 0.78f, 0.52f), false);
+            placeholder.rectTransform.anchorMin = Vector2.zero;
+            placeholder.rectTransform.anchorMax = Vector2.one;
+            placeholder.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            placeholder.rectTransform.anchoredPosition = Vector2.zero;
+            placeholder.rectTransform.sizeDelta = Vector2.zero;
+        }
+
+        public void BuildEditableHierarchy()
+        {
+            if (Application.isPlaying || config == null) return;
+
+            Transform existing = transform.Find(EditableLayoutName);
+            if (existing != null) DestroyImmediate(existing.gameObject);
+
+            authoringLayout = true;
+            uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            saveData = new Metin2FrontendSaveData();
+            saveData.EnsureSlots();
+            createSlot = 1;
+            draftEmpire = Metin2Empire.Shinsoo;
+            draftClass = Metin2CharacterClass.Warrior;
+            draftGender = Metin2Gender.Male;
+            draftName = string.Empty;
+
+            CreateCanvas(EditableLayoutName);
+            List<RectTransform> screens = new List<RectTransform>();
+            ShowLogin();
+            screens.Add(screenRoot);
+
+            saveData.accountId = "Örnek Hesap";
+            saveData.empire = Metin2Empire.Shinsoo;
+            ShowEmpireSelection();
+            screens.Add(screenRoot);
+
+            saveData.characters[0] = new Metin2CharacterData
+            {
+                characterName = "Alp",
+                characterClass = Metin2CharacterClass.Warrior,
+                gender = Metin2Gender.Male,
+                level = 1,
+                vitality = 4,
+                intelligence = 3,
+                strength = 6,
+                dexterity = 3,
+            };
+            selectedSlot = 0;
+            ShowCharacterSelection();
+            screens.Add(screenRoot);
+
+            ShowCharacterCreation();
+            screens.Add(screenRoot);
+            ShowLoading(saveData.characters[0]);
+            screens.Add(screenRoot);
+
+            for (int index = 0; index < screens.Count; index++)
+                screens[index].gameObject.SetActive(index == 0);
+
+            canvas = null;
+            screenRoot = null;
+            authoringLayout = false;
+            saveData = null;
+            Debug.Log("[Metin2 Frontend] Editable hierarchy generated with " + screens.Count + " screens.", this);
+        }
+
+        void CaptureEditableLayout()
+        {
+            editableLayouts.Clear();
+            Transform layoutRoot = transform.Find(EditableLayoutName);
+            if (layoutRoot == null) return;
+
+            foreach (RectTransform rect in layoutRoot.GetComponentsInChildren<RectTransform>(true))
+            {
+                if (rect == layoutRoot) continue;
+                editableLayouts[LayoutPath(rect, layoutRoot)] = new EditableRectLayout
+                {
+                    anchorMin = rect.anchorMin,
+                    anchorMax = rect.anchorMax,
+                    pivot = rect.pivot,
+                    anchoredPosition = rect.anchoredPosition,
+                    sizeDelta = rect.sizeDelta,
+                    localScale = rect.localScale,
+                    localEulerAngles = rect.localEulerAngles,
+                };
+            }
+            layoutRoot.gameObject.SetActive(false);
+        }
+
+        void ApplyEditableLayout(RectTransform rect)
+        {
+            if (authoringLayout || canvas == null || editableLayouts.Count == 0) return;
+            if (!editableLayouts.TryGetValue(LayoutPath(rect, canvas.transform), out EditableRectLayout layout)) return;
+            rect.anchorMin = layout.anchorMin;
+            rect.anchorMax = layout.anchorMax;
+            rect.pivot = layout.pivot;
+            rect.anchoredPosition = layout.anchoredPosition;
+            rect.sizeDelta = layout.sizeDelta;
+            rect.localScale = layout.localScale;
+            rect.localEulerAngles = layout.localEulerAngles;
+        }
+
+        static string LayoutPath(Transform item, Transform boundary)
+        {
+            List<string> segments = new List<string>();
+            Transform current = item;
+            while (current != null && current != boundary)
+            {
+                int occurrence = 0;
+                if (current.parent != null)
+                {
+                    for (int index = 0; index < current.GetSiblingIndex(); index++)
+                        if (current.parent.GetChild(index).name == current.name) occurrence++;
+                }
+                segments.Add(current.name + "[" + occurrence + "]");
+                current = current.parent;
+            }
+            segments.Reverse();
+            return string.Join("/", segments);
         }
 
         IEnumerator LoadGame(Metin2CharacterData character, Text status, RectTransform fill, RectTransform footer)
@@ -903,7 +1085,7 @@ namespace Metin2Dev.Frontend
             return sprite;
         }
 
-        static RectTransform CreateRect(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax,
+        RectTransform CreateRect(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax,
             Vector2 pivot, Vector2 position, Vector2 size)
         {
             GameObject child = new GameObject(name, typeof(RectTransform));
@@ -914,6 +1096,7 @@ namespace Metin2Dev.Frontend
             rect.pivot = pivot;
             rect.anchoredPosition = position;
             rect.sizeDelta = size;
+            ApplyEditableLayout(rect);
             return rect;
         }
 
