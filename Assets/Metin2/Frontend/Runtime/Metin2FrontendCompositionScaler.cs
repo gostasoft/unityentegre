@@ -66,10 +66,8 @@ namespace Metin2Dev.Frontend
                 Vector2 available = canvasRect.rect.size;
                 if (available.x < 1f || available.y < 1f) return;
 
-                float uniformScale = Mathf.Min(
-                    available.x / authoredResolution.x,
-                    available.y / authoredResolution.y);
-                uniformScale = Mathf.Max(0.01f, uniformScale);
+                float horizontalScale = Mathf.Max(0.01f, available.x / authoredResolution.x);
+                float verticalScale = Mathf.Max(0.01f, available.y / authoredResolution.y);
 
                 foreach (Transform child in transform)
                 {
@@ -81,7 +79,10 @@ namespace Metin2Dev.Frontend
                     screen.pivot = new Vector2(0.5f, 0.5f);
                     screen.anchoredPosition = Vector2.zero;
                     screen.sizeDelta = authoredResolution;
-                    screen.localScale = new Vector3(uniformScale, uniformScale, 1f);
+                    // The complete authored composition stretches with its background.
+                    // This intentionally avoids letterboxing and keeps every child on
+                    // the exact same normalized point of the artwork at every aspect.
+                    screen.localScale = new Vector3(horizontalScale, verticalScale, 1f);
                 }
                 lastCanvasSize = available;
             }
