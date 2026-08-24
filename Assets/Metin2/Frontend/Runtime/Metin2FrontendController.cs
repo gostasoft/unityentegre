@@ -132,13 +132,13 @@ namespace Metin2Dev.Frontend
                 ? new Metin2FrontendSaveData()
                 : JsonUtility.FromJson<Metin2FrontendSaveData>(json) ?? new Metin2FrontendSaveData();
             saveData.accountId = accountId.Trim();
-            saveData.EnsureSlots();
+            SanitizeCharacterSlots();
             selectedSlot = FirstOccupiedSlot();
         }
 
         void Save()
         {
-            saveData.EnsureSlots();
+            SanitizeCharacterSlots();
             if (string.IsNullOrWhiteSpace(saveData.accountId)) return;
             PlayerPrefs.SetString(AccountSavePrefix + NormalizeAccountId(saveData.accountId), JsonUtility.ToJson(saveData));
             PlayerPrefs.SetString(LastAccountKey, saveData.accountId);
@@ -149,6 +149,35 @@ namespace Metin2Dev.Frontend
         {
             int occupied = Array.FindIndex(saveData.characters, character => character != null);
             return occupied >= 0 ? occupied : -1;
+        }
+
+        void SanitizeCharacterSlots()
+        {
+            saveData.EnsureSlots();
+            for (int slot = 0; slot < saveData.characters.Length; slot++)
+                if (saveData.characters[slot] != null &&
+                    string.IsNullOrWhiteSpace(saveData.characters[slot].characterName))
+                    saveData.characters[slot] = null;
+        }
+
+        void ContinueToCharacters()
+        {
+            int occupiedSlot = FirstOccupiedSlot();
+            if (occupiedSlot >= 0)
+            {
+                selectedSlot = occupiedSlot;
+                ShowCharacterSelection();
+                return;
+            }
+
+            int emptySlot = Array.FindIndex(saveData.characters, character => character == null);
+            BeginCreate(emptySlot >= 0 ? emptySlot : 0);
+        }
+
+        void ReturnFromCharacterCreation()
+        {
+            if (FirstOccupiedSlot() >= 0) ShowCharacterSelection();
+            else ShowEmpireSelection();
         }
 
         static string NormalizeAccountId(string accountId)
@@ -312,7 +341,7 @@ namespace Metin2Dev.Frontend
                 LoadAccount(id);
                 Save();
                 if (saveData.empire == Metin2Empire.None) ShowEmpireSelection();
-                else ShowCharacterSelection();
+                else ContinueToCharacters();
             });
             password.onEndEdit.AddListener(_ =>
             {
@@ -383,7 +412,7 @@ namespace Metin2Dev.Frontend
             {
                 saveData.empire = draftEmpire;
                 Save();
-                ShowCharacterSelection();
+                ContinueToCharacters();
             });
 
             Text backLabel;
@@ -663,7 +692,7 @@ namespace Metin2Dev.Frontend
                 Save();
                 ShowCharacterSelection();
             });
-            back.onClick.AddListener(ShowCharacterSelection);
+            back.onClick.AddListener(ReturnFromCharacterCreation);
         }
 
         void ShowDeleteConfirmation(int slot)
@@ -688,7 +717,8 @@ namespace Metin2Dev.Frontend
             {
                 saveData.characters[slot] = null;
                 Save();
-                ShowCharacterSelection();
+                if (FirstOccupiedSlot() >= 0) ShowCharacterSelection();
+                else BeginCreate(slot);
             });
             cancel.onClick.AddListener(() => Destroy(shade.gameObject));
         }
@@ -789,7 +819,7 @@ namespace Metin2Dev.Frontend
                     LoadAccount(id);
                     Save();
                     if (saveData.empire == Metin2Empire.None) ShowEmpireSelection();
-                    else ShowCharacterSelection();
+                    else ContinueToCharacters();
                 });
             }
             if (password != null)
@@ -831,7 +861,7 @@ namespace Metin2Dev.Frontend
                 {
                     saveData.empire = draftEmpire;
                     Save();
-                    ShowCharacterSelection();
+                    ContinueToCharacters();
                 });
             }
             Button back = FindNamed<Button>(root, "Geri Button");
@@ -879,9 +909,11 @@ namespace Metin2Dev.Frontend
                 Button changeEmpire = FindNamed<Button>(listPanel, "Bayrak Seçimi Button");
                 Button exit = FindNamed<Button>(listPanel, "Hesaptan Çık Button");
                 Button newCharacter = FindNamed<Button>(listPanel, "+  Yeni Karakter Button");
-                Button slotTemplate = DirectComponents<Button>(listPanel).FirstOrDefault(button =>
+                List<Button> authoredSlots = DirectComponents<Button>(listPanel).Where(button =>
                     button != changeEmpire && button != exit && button != newCharacter &&
-                    !button.name.StartsWith("Runtime Character Slot ", StringComparison.Ordinal));
+                    !button.name.StartsWith("Runtime Character Slot ", StringComparison.Ordinal)).ToList();
+                Button slotTemplate = authoredSlots.FirstOrDefault();
+                foreach (Button unusedSlot in authoredSlots.Skip(1)) unusedSlot.gameObject.SetActive(false);
 
                 if (slotTemplate != null && newCharacter != null && !editableCharacterListCached)
                 {
@@ -1070,7 +1102,7 @@ namespace Metin2Dev.Frontend
             if (back != null)
             {
                 back.onClick.RemoveAllListeners();
-                back.onClick.AddListener(ShowCharacterSelection);
+                back.onClick.AddListener(ReturnFromCharacterCreation);
             }
             ConfigureEditablePreview(previewRect, new Metin2CharacterData
             {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Metin2Dev.Frontend.Editor
 {
@@ -50,7 +51,7 @@ namespace Metin2Dev.Frontend.Editor
             foreach (Transform child in layout)
                 if (ScreenNames.Contains(child.name)) screens.Add(child.gameObject);
 
-            bool requiresChange = false;
+            bool requiresChange = HideCharacterSlotPlaceholders(selectedScreen);
             foreach (GameObject screen in screens)
             {
                 bool shouldBeVisible = screen.transform == selectedScreen;
@@ -74,6 +75,38 @@ namespace Metin2Dev.Frontend.Editor
             {
                 changingVisibility = false;
             }
+        }
+
+        static bool HideCharacterSlotPlaceholders(Transform selectedScreen)
+        {
+            if (selectedScreen.name != "Character Selection") return false;
+
+            Transform listPanel = FindChild(selectedScreen, "Saved Characters");
+            if (listPanel == null) return false;
+
+            bool changed = false;
+            foreach (Transform child in listPanel)
+            {
+                if (child.GetComponent<Button>() == null ||
+                    child.name == "Bayrak Seçimi Button" ||
+                    child.name == "Hesaptan Çık Button" ||
+                    child.name == "+  Yeni Karakter Button" ||
+                    child.name.StartsWith("Runtime Character Slot ", StringComparison.Ordinal))
+                    continue;
+
+                if (!child.gameObject.activeSelf) continue;
+                Undo.RecordObject(child.gameObject, "Hide frontend character placeholder");
+                child.gameObject.SetActive(false);
+                changed = true;
+            }
+            return changed;
+        }
+
+        static Transform FindChild(Transform root, string name)
+        {
+            foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+                if (child.name == name) return child;
+            return null;
         }
     }
 }
