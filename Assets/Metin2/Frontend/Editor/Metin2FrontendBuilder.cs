@@ -50,6 +50,7 @@ namespace Metin2Dev.Frontend.Editor
                 return;
             }
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            Metin2MapWorkspace.RememberCurrentWorkspace(ScenePath);
             EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
         }
 
