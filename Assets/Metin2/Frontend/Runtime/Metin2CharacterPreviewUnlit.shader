@@ -62,7 +62,15 @@ Shader "Metin2/Character Preview Unlit"
             half4 Frag(Varyings input) : SV_Target
             {
                 half4 color = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv) * _BaseColor;
-                clip(color.a - lerp(-1.0h, _Cutoff, saturate(_AlphaClip)));
+                if (_AlphaClip > 0.5h)
+                    clip(color.a - _Cutoff);
+
+                // Several original Metin2 body textures store a mask in alpha rather
+                // than transparency (notably the female Shaman novice texture). The
+                // preview is composited through a transparent RenderTexture, so passing
+                // that mask through makes the body disappear in the UI. Surviving hair
+                // pixels and every opaque body pixel must write full coverage.
+                color.a = 1.0h;
                 return color;
             }
             ENDHLSL
