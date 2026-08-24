@@ -285,6 +285,11 @@ namespace Metin2Dev.Frontend
             DisposePreview();
         }
 
+        void OnDisable()
+        {
+            DisposePreview();
+        }
+
         static void SetLayer(GameObject root, int layer)
         {
             root.layer = layer;

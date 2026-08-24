@@ -37,6 +37,14 @@ namespace Metin2Dev.Frontend
             { 4, 6, 3, 3 },
         };
         static readonly string[] EmpireNames = { "", "Shinsoo", "Chunjo", "Jinno" };
+        static readonly string[] EditableScreenNames =
+        {
+            "Login Screen",
+            "Empire Selection",
+            "Character Selection",
+            "Character Creation",
+            "Loading Screen",
+        };
         static readonly Color[] EmpireColors =
         {
             Color.white,
@@ -48,7 +56,6 @@ namespace Metin2Dev.Frontend
         [SerializeField] Metin2FrontendConfig config;
 
         readonly Dictionary<Texture2D, Sprite> spriteCache = new Dictionary<Texture2D, Sprite>();
-        readonly Dictionary<string, EditableRectLayout> editableLayouts = new Dictionary<string, EditableRectLayout>();
         readonly string[] servers = { "Metin3", "Yerel Test" };
         readonly string[] channels = { "CH1", "CH2", "CH3", "CH4" };
 
@@ -66,17 +73,10 @@ namespace Metin2Dev.Frontend
         string draftName = string.Empty;
         Coroutine loadingRoutine;
         bool authoringLayout;
-
-        struct EditableRectLayout
-        {
-            public Vector2 anchorMin;
-            public Vector2 anchorMax;
-            public Vector2 pivot;
-            public Vector2 anchoredPosition;
-            public Vector2 sizeDelta;
-            public Vector3 localScale;
-            public Vector3 localEulerAngles;
-        }
+        bool useEditableHierarchy;
+        bool editableCharacterListCached;
+        Vector2 editableCharacterSlotBase;
+        Vector2 editableNewCharacterBase;
 
         public Metin2FrontendConfig Config => config;
 
@@ -95,13 +95,12 @@ namespace Metin2Dev.Frontend
             }
 
             Scene frontendScene = gameObject.scene;
-            CaptureEditableLayout();
             DontDestroyOnLoad(gameObject);
             IsolateFrontend(frontendScene);
             uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             LoadLastAccountHint();
             CreateEventSystem();
-            CreateCanvas(RuntimeCanvasName);
+            if (!UseEditableHierarchy()) CreateCanvas(RuntimeCanvasName);
             ShowLogin();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (Environment.GetCommandLineArgs().Any(argument => argument == "-metin2FrontendCapture"))
@@ -197,6 +196,45 @@ namespace Metin2Dev.Frontend
             scaler.matchWidthOrHeight = 0.5f;
         }
 
+        bool UseEditableHierarchy()
+        {
+            Transform layoutRoot = transform.Find(EditableLayoutName);
+            if (layoutRoot == null) return false;
+            canvas = layoutRoot.GetComponent<Canvas>();
+            if (canvas == null) return false;
+            layoutRoot.gameObject.SetActive(true);
+            foreach (Transform child in layoutRoot)
+                if (IsEditableScreenName(child.name)) child.gameObject.SetActive(false);
+            useEditableHierarchy = true;
+            return true;
+        }
+
+        bool TryShowEditableScreen(string name, out RectTransform root)
+        {
+            root = null;
+            if (!useEditableHierarchy || authoringLayout || canvas == null) return false;
+            if (loadingRoutine != null)
+            {
+                StopCoroutine(loadingRoutine);
+                loadingRoutine = null;
+            }
+            foreach (Transform child in canvas.transform)
+            {
+                if (!IsEditableScreenName(child.name)) continue;
+                bool selected = child.name == name;
+                child.gameObject.SetActive(selected);
+                if (selected) root = child as RectTransform;
+            }
+            if (root == null) return false;
+            screenRoot = root;
+            return true;
+        }
+
+        static bool IsEditableScreenName(string name)
+        {
+            return EditableScreenNames.Contains(name);
+        }
+
         RectTransform BeginScreen(string name, Texture2D background)
         {
             if (loadingRoutine != null)
@@ -230,6 +268,11 @@ namespace Metin2Dev.Frontend
 
         void ShowLogin()
         {
+            if (TryShowEditableScreen("Login Screen", out RectTransform editableRoot))
+            {
+                BindEditableLogin(editableRoot);
+                return;
+            }
             RectTransform root = BeginScreen("Login Screen", config.loginBackground);
             RectTransform panel = CreatePanel(root, "Login Panel", new Vector2(382f, -390f), new Vector2(260f, 238f));
             CreateText(panel, "HESAP GİRİŞİ", 18, FontStyle.Bold, TextAnchor.MiddleCenter,
@@ -286,6 +329,11 @@ namespace Metin2Dev.Frontend
 
         void ShowEmpireSelection()
         {
+            if (TryShowEditableScreen("Empire Selection", out RectTransform editableRoot))
+            {
+                BindEditableEmpire(editableRoot);
+                return;
+            }
             RectTransform root = BeginScreen("Empire Selection", config.serverBackground != null ? config.serverBackground : config.selectionBackground);
             draftEmpire = saveData.empire != Metin2Empire.None ? saveData.empire : draftEmpire;
             CreateText(root, "İMPARATORLUĞUNU SEÇ", 30, FontStyle.Bold, TextAnchor.MiddleCenter,
@@ -385,6 +433,11 @@ namespace Metin2Dev.Frontend
 
         void ShowCharacterSelection()
         {
+            if (TryShowEditableScreen("Character Selection", out RectTransform editableRoot))
+            {
+                BindEditableCharacterSelection(editableRoot);
+                return;
+            }
             RectTransform root = BeginScreen("Character Selection", config.selectionBackground);
             saveData.EnsureSlots();
             if (selectedSlot < 0 || selectedSlot >= saveData.characters.Length || saveData.characters[selectedSlot] == null)
@@ -502,6 +555,11 @@ namespace Metin2Dev.Frontend
 
         void ShowCharacterCreation()
         {
+            if (TryShowEditableScreen("Character Creation", out RectTransform editableRoot))
+            {
+                BindEditableCharacterCreation(editableRoot);
+                return;
+            }
             RectTransform root = BeginScreen("Character Creation", config.selectionBackground);
             RectTransform classPanel = CreatePanel(root, "Character Class Selection", new Vector2(24f, -72f),
                 new Vector2(270f, 632f), new Color(0.02f, 0.018f, 0.016f, 0.95f));
@@ -637,6 +695,11 @@ namespace Metin2Dev.Frontend
 
         void ShowLoading(Metin2CharacterData character)
         {
+            if (TryShowEditableScreen("Loading Screen", out RectTransform editableRoot))
+            {
+                BindEditableLoading(editableRoot, character);
+                return;
+            }
             int loadingCount = config.loadingBackgrounds != null ? config.loadingBackgrounds.Length : 0;
             int imageIndex = loadingCount > 0 ? Mathf.Clamp((int)character.characterClass, 0, loadingCount - 1) : 0;
             Texture2D background = loadingCount > 0
@@ -668,6 +731,447 @@ namespace Metin2Dev.Frontend
                 SetProgress(fillRect, 0.65f);
             }
             else loadingRoutine = StartCoroutine(LoadGame(character, status, fillRect, footer));
+        }
+
+        void BindEditableLogin(RectTransform root)
+        {
+            RectTransform panel = FindRect(root, "Login Panel");
+            List<InputField> inputs = root.GetComponentsInChildren<InputField>(true).ToList();
+            InputField account = FindNamed<InputField>(root, "Hesap adı") ?? inputs.FirstOrDefault();
+            InputField password = FindNamed<InputField>(root, "Şifre") ?? inputs.Skip(1).FirstOrDefault();
+            List<Button> buttons = panel != null ? DirectComponents<Button>(panel) : new List<Button>();
+            Button server = FindNamed<Button>(root, "Metin3 Button") ?? buttons.ElementAtOrDefault(0);
+            Button channel = FindNamed<Button>(root, "CH1 Button") ?? buttons.ElementAtOrDefault(1);
+            Button login = FindNamed<Button>(root, "Giriş Button") ?? buttons.ElementAtOrDefault(2);
+            Button quit = FindNamed<Button>(root, "Çıkış Button") ?? buttons.ElementAtOrDefault(3);
+            Text serverLabel = ButtonLabel(server);
+            Text channelLabel = ButtonLabel(channel);
+            Text status = panel != null
+                ? DirectComponents<Text>(panel).LastOrDefault(item => string.IsNullOrEmpty(item.text))
+                : null;
+
+            if (account != null) account.text = saveData.accountId ?? string.Empty;
+            string firstServer = serverLabel != null && !string.IsNullOrWhiteSpace(serverLabel.text)
+                ? serverLabel.text
+                : servers[0];
+            string firstChannel = channelLabel != null && !string.IsNullOrWhiteSpace(channelLabel.text)
+                ? channelLabel.text
+                : channels[0];
+            if (server != null)
+            {
+                server.onClick.RemoveAllListeners();
+                server.onClick.AddListener(() =>
+                {
+                    serverIndex = (serverIndex + 1) % servers.Length;
+                    if (serverLabel != null) serverLabel.text = serverIndex == 0 ? firstServer : servers[serverIndex];
+                });
+            }
+            if (channel != null)
+            {
+                channel.onClick.RemoveAllListeners();
+                channel.onClick.AddListener(() =>
+                {
+                    channelIndex = (channelIndex + 1) % channels.Length;
+                    if (channelLabel != null) channelLabel.text = channelIndex == 0 ? firstChannel : channels[channelIndex];
+                });
+            }
+            if (login != null)
+            {
+                login.onClick.RemoveAllListeners();
+                login.onClick.AddListener(() =>
+                {
+                    string id = account != null ? account.text.Trim() : string.Empty;
+                    if (id.Length < 2 || password == null || string.IsNullOrEmpty(password.text))
+                    {
+                        if (status != null) status.text = "Hesap adı ve şifreyi gir.";
+                        return;
+                    }
+                    LoadAccount(id);
+                    Save();
+                    if (saveData.empire == Metin2Empire.None) ShowEmpireSelection();
+                    else ShowCharacterSelection();
+                });
+            }
+            if (password != null)
+            {
+                password.onEndEdit.RemoveAllListeners();
+                password.onEndEdit.AddListener(_ =>
+                {
+                    if (!string.IsNullOrEmpty(password.text) && login != null) login.onClick.Invoke();
+                });
+            }
+            if (quit != null)
+            {
+                quit.onClick.RemoveAllListeners();
+                quit.onClick.AddListener(QuitApplication);
+            }
+        }
+
+        void BindEditableEmpire(RectTransform root)
+        {
+            draftEmpire = saveData.empire != Metin2Empire.None ? saveData.empire : draftEmpire;
+            RectTransform panel = FindRect(root, "Empire Map Window");
+            List<Text> texts = panel != null ? DirectComponents<Text>(panel) : new List<Text>();
+            if (texts.Count > 1)
+            {
+                texts[1].text = EmpireNames[(int)draftEmpire].ToUpperInvariant();
+                texts[1].color = EmpireColors[(int)draftEmpire];
+            }
+            if (texts.Count > 2) texts[2].text = EmpireDescription(draftEmpire);
+
+            BindEmpireChoice(root, Metin2Empire.Chunjo);
+            BindEmpireChoice(root, Metin2Empire.Jinno);
+            BindEmpireChoice(root, Metin2Empire.Shinsoo);
+
+            Button confirm = FindNamed<Button>(root, "Bu Bayrağı Seç Button");
+            if (confirm != null)
+            {
+                confirm.onClick.RemoveAllListeners();
+                confirm.onClick.AddListener(() =>
+                {
+                    saveData.empire = draftEmpire;
+                    Save();
+                    ShowCharacterSelection();
+                });
+            }
+            Button back = FindNamed<Button>(root, "Geri Button");
+            if (back != null)
+            {
+                back.onClick.RemoveAllListeners();
+                back.onClick.AddListener(ShowLogin);
+            }
+        }
+
+        void BindEmpireChoice(Transform root, Metin2Empire empire)
+        {
+            Button button = FindNamed<Button>(root, EmpireNames[(int)empire] + " Flag Selection");
+            if (button == null) return;
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(() =>
+            {
+                draftEmpire = empire;
+                ShowEmpireSelection();
+            });
+        }
+
+        void BindEditableCharacterSelection(RectTransform root)
+        {
+            saveData.EnsureSlots();
+            if (selectedSlot < 0 || selectedSlot >= saveData.characters.Length || saveData.characters[selectedSlot] == null)
+                selectedSlot = FirstOccupiedSlot();
+            Metin2CharacterData selected = selectedSlot >= 0 ? saveData.characters[selectedSlot] : null;
+
+            RectTransform listPanel = FindRect(root, "Saved Characters");
+            RectTransform infoPanel = FindRect(root, "Selected Character Information");
+            RectTransform previewRect = FindRect(root, "Selected Character FBX Preview");
+            List<Text> listTexts = listPanel != null ? DirectComponents<Text>(listPanel) : new List<Text>();
+            if (listTexts.Count > 1) listTexts[1].text = saveData.accountId;
+
+            if (listPanel != null)
+            {
+                foreach (Transform child in listPanel.Cast<Transform>().ToArray())
+                    if (child.name.StartsWith("Runtime Character Slot ", StringComparison.Ordinal))
+                    {
+                        child.gameObject.SetActive(false);
+                        Destroy(child.gameObject);
+                    }
+
+                Button changeEmpire = FindNamed<Button>(listPanel, "Bayrak Seçimi Button");
+                Button exit = FindNamed<Button>(listPanel, "Hesaptan Çık Button");
+                Button newCharacter = FindNamed<Button>(listPanel, "+  Yeni Karakter Button");
+                Button slotTemplate = DirectComponents<Button>(listPanel).FirstOrDefault(button =>
+                    button != changeEmpire && button != exit && button != newCharacter &&
+                    !button.name.StartsWith("Runtime Character Slot ", StringComparison.Ordinal));
+
+                if (slotTemplate != null && newCharacter != null && !editableCharacterListCached)
+                {
+                    editableCharacterSlotBase = slotTemplate.GetComponent<RectTransform>().anchoredPosition;
+                    editableNewCharacterBase = newCharacter.GetComponent<RectTransform>().anchoredPosition;
+                    editableCharacterListCached = true;
+                }
+
+                int visibleRow = 0;
+                for (int slot = 0; slot < saveData.characters.Length; slot++)
+                {
+                    Metin2CharacterData character = saveData.characters[slot];
+                    if (character == null || slotTemplate == null) continue;
+                    int captured = slot;
+                    Button row = visibleRow == 0
+                        ? slotTemplate
+                        : Instantiate(slotTemplate, listPanel, false);
+                    if (visibleRow > 0) row.name = "Runtime Character Slot " + visibleRow;
+                    row.gameObject.SetActive(true);
+                    RectTransform rowRect = row.GetComponent<RectTransform>();
+                    rowRect.anchoredPosition = editableCharacterSlotBase + new Vector2(0f, -94f * visibleRow);
+                    Text label = ButtonLabel(row);
+                    if (label != null)
+                    {
+                        label.text = character.characterName + "\n" + ClassNames[(int)character.characterClass] +
+                            "  •  Sv. " + character.level;
+                    }
+                    row.onClick.RemoveAllListeners();
+                    row.onClick.AddListener(() =>
+                    {
+                        selectedSlot = captured;
+                        ShowCharacterSelection();
+                    });
+                    visibleRow++;
+                }
+                if (slotTemplate != null && visibleRow == 0) slotTemplate.gameObject.SetActive(false);
+
+                int emptySlot = Array.FindIndex(saveData.characters, character => character == null);
+                if (newCharacter != null)
+                {
+                    newCharacter.gameObject.SetActive(emptySlot >= 0);
+                    if (emptySlot >= 0)
+                    {
+                        Vector2 rowStep = editableNewCharacterBase - editableCharacterSlotBase;
+                        newCharacter.GetComponent<RectTransform>().anchoredPosition = editableCharacterSlotBase + rowStep * visibleRow;
+                        newCharacter.onClick.RemoveAllListeners();
+                        newCharacter.onClick.AddListener(() => BeginCreate(emptySlot));
+                    }
+                }
+                if (changeEmpire != null)
+                {
+                    changeEmpire.onClick.RemoveAllListeners();
+                    changeEmpire.onClick.AddListener(ShowEmpireSelection);
+                }
+                if (exit != null)
+                {
+                    exit.onClick.RemoveAllListeners();
+                    exit.onClick.AddListener(ShowLogin);
+                }
+            }
+
+            List<Text> infoTexts = infoPanel != null ? DirectComponents<Text>(infoPanel) : new List<Text>();
+            Button play = FindNamed<Button>(infoPanel, "Oyuna Başla Button");
+            Button delete = FindNamed<Button>(infoPanel, "Karakteri Sil Button");
+            if (selected == null)
+            {
+                SetDirectText(infoTexts, 0, "KARAKTER YOK");
+                SetDirectText(infoTexts, 1, "Sol taraftaki Yeni Karakter düğmesiyle ilk karakterini oluştur.");
+                for (int index = 2; index < infoTexts.Count; index++) infoTexts[index].gameObject.SetActive(false);
+                if (play != null) play.gameObject.SetActive(false);
+                if (delete != null) delete.gameObject.SetActive(false);
+                ConfigureEditablePreview(previewRect, null);
+                return;
+            }
+
+            foreach (Text text in infoTexts) text.gameObject.SetActive(true);
+            SetDirectText(infoTexts, 0, selected.characterName);
+            SetDirectText(infoTexts, 1, EmpireNames[(int)saveData.empire] + " • " +
+                (selected.gender == Metin2Gender.Male ? "Erkek" : "Kadın"));
+            SetDirectText(infoTexts, 3, ClassNames[(int)selected.characterClass]);
+            SetDirectText(infoTexts, 5, selected.level.ToString());
+            SetDirectText(infoTexts, 7, FormatPlayTime(selected.playMinutes));
+            SetDirectText(infoTexts, 9, selected.vitality.ToString());
+            SetDirectText(infoTexts, 11, selected.intelligence.ToString());
+            SetDirectText(infoTexts, 13, selected.strength.ToString());
+            SetDirectText(infoTexts, 15, selected.dexterity.ToString());
+            if (play != null)
+            {
+                play.gameObject.SetActive(true);
+                play.onClick.RemoveAllListeners();
+                play.onClick.AddListener(() => ShowLoading(saveData.characters[selectedSlot]));
+            }
+            if (delete != null)
+            {
+                delete.gameObject.SetActive(true);
+                delete.onClick.RemoveAllListeners();
+                delete.onClick.AddListener(() => ShowDeleteConfirmation(selectedSlot));
+            }
+            ConfigureEditablePreview(previewRect, selected);
+        }
+
+        void BindEditableCharacterCreation(RectTransform root)
+        {
+            RectTransform classPanel = FindRect(root, "Character Class Selection");
+            RectTransform panel = FindRect(root, "Character Registration");
+            RectTransform previewRect = FindRect(root, "Creation Character FBX Preview");
+            List<Button> classButtons = classPanel != null ? DirectComponents<Button>(classPanel) : new List<Button>();
+            for (int index = 0; index < classButtons.Count && index < ClassNames.Length; index++)
+            {
+                int captured = index;
+                classButtons[index].onClick.RemoveAllListeners();
+                classButtons[index].onClick.AddListener(() =>
+                {
+                    draftClass = (Metin2CharacterClass)captured;
+                    ShowCharacterCreation();
+                });
+            }
+            List<Text> classTexts = classPanel != null ? DirectComponents<Text>(classPanel) : new List<Text>();
+            if (classTexts.Count > 1) classTexts[1].text = ClassDescriptions[(int)draftClass];
+
+            List<Text> panelTexts = panel != null ? DirectComponents<Text>(panel) : new List<Text>();
+            SetDirectText(panelTexts, 1, ClassNames[(int)draftClass].ToUpperInvariant());
+            SetDirectText(panelTexts, 3, string.Empty);
+            UpdateEditableStat(panel, "VIT", StartingStats[(int)draftClass, 0]);
+            UpdateEditableStat(panel, "INT", StartingStats[(int)draftClass, 1]);
+            UpdateEditableStat(panel, "STR", StartingStats[(int)draftClass, 2]);
+            UpdateEditableStat(panel, "DEX", StartingStats[(int)draftClass, 3]);
+
+            Button male = FindNamed<Button>(panel, "Erkek Button");
+            Button female = FindNamed<Button>(panel, "Kadın Button");
+            if (male != null)
+            {
+                male.onClick.RemoveAllListeners();
+                male.onClick.AddListener(() => { draftGender = Metin2Gender.Male; ShowCharacterCreation(); });
+            }
+            if (female != null)
+            {
+                female.onClick.RemoveAllListeners();
+                female.onClick.AddListener(() => { draftGender = Metin2Gender.Female; ShowCharacterCreation(); });
+            }
+
+            InputField nameInput = FindNamed<InputField>(panel, "Karakter adı");
+            if (nameInput != null)
+            {
+                nameInput.characterLimit = 12;
+                nameInput.text = draftName;
+                nameInput.onValueChanged.RemoveAllListeners();
+                nameInput.onValueChanged.AddListener(value => draftName = value);
+            }
+            Text status = panelTexts.ElementAtOrDefault(3);
+            Button create = FindNamed<Button>(panel, "Kaydet Button");
+            Button back = FindNamed<Button>(panel, "Geri Button");
+            if (create != null)
+            {
+                create.onClick.RemoveAllListeners();
+                create.onClick.AddListener(() =>
+                {
+                    string candidate = draftName.Trim();
+                    if (candidate.Length < 2)
+                    {
+                        if (status != null) status.text = "Karakter adı en az 2 harf olmalı.";
+                        return;
+                    }
+                    if (saveData.characters.Any(item => item != null &&
+                        string.Equals(item.characterName, candidate, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (status != null) status.text = "Bu isimde bir karakter zaten var.";
+                        return;
+                    }
+                    saveData.characters[createSlot] = new Metin2CharacterData
+                    {
+                        characterName = candidate,
+                        characterClass = draftClass,
+                        gender = draftGender,
+                        level = 1,
+                        vitality = StartingStats[(int)draftClass, 0],
+                        intelligence = StartingStats[(int)draftClass, 1],
+                        strength = StartingStats[(int)draftClass, 2],
+                        dexterity = StartingStats[(int)draftClass, 3],
+                    };
+                    selectedSlot = createSlot;
+                    Save();
+                    ShowCharacterSelection();
+                });
+            }
+            if (back != null)
+            {
+                back.onClick.RemoveAllListeners();
+                back.onClick.AddListener(ShowCharacterSelection);
+            }
+            ConfigureEditablePreview(previewRect, new Metin2CharacterData
+            {
+                characterClass = draftClass,
+                gender = draftGender,
+            });
+        }
+
+        void BindEditableLoading(RectTransform root, Metin2CharacterData character)
+        {
+            int loadingCount = config.loadingBackgrounds != null ? config.loadingBackgrounds.Length : 0;
+            if (loadingCount > 0)
+            {
+                int imageIndex = Mathf.Clamp((int)character.characterClass, 0, loadingCount - 1);
+                RawImage background = root.GetComponent<RawImage>();
+                if (background != null) background.texture = config.loadingBackgrounds[imageIndex];
+            }
+            RectTransform footer = FindRect(root, "Loading Footer");
+            List<Text> texts = footer != null ? DirectComponents<Text>(footer) : new List<Text>();
+            Text status = texts.ElementAtOrDefault(1);
+            RectTransform fill = FindRect(root, "Gauge Fill");
+            if (status != null && fill != null)
+                loadingRoutine = StartCoroutine(LoadGame(character, status, fill, footer));
+        }
+
+        void ConfigureEditablePreview(RectTransform previewRect, Metin2CharacterData character)
+        {
+            if (previewRect == null) return;
+            Image placeholderImage = previewRect.GetComponent<Image>();
+            if (placeholderImage != null) placeholderImage.enabled = false;
+            foreach (Text text in previewRect.GetComponentsInChildren<Text>(true))
+                if (text.text.Contains("FBX ALANI")) text.gameObject.SetActive(false);
+            RawImage target = FindNamed<RawImage>(previewRect, "Runtime Character Preview");
+            if (target == null)
+            {
+                GameObject targetObject = new GameObject("Runtime Character Preview", typeof(RectTransform), typeof(RawImage));
+                RectTransform targetRect = targetObject.GetComponent<RectTransform>();
+                targetRect.SetParent(previewRect, false);
+                targetRect.anchorMin = Vector2.zero;
+                targetRect.anchorMax = Vector2.one;
+                targetRect.pivot = new Vector2(0.5f, 0.5f);
+                targetRect.anchoredPosition = Vector2.zero;
+                targetRect.sizeDelta = Vector2.zero;
+                targetRect.SetAsFirstSibling();
+                target = targetObject.GetComponent<RawImage>();
+            }
+            target.raycastTarget = false;
+            Metin2CharacterPreview preview = previewRect.GetComponent<Metin2CharacterPreview>() ??
+                previewRect.gameObject.AddComponent<Metin2CharacterPreview>();
+            preview.Initialize(target);
+            if (character == null) preview.Hide();
+            else preview.Show(config, character.characterClass, character.gender);
+        }
+
+        void UpdateEditableStat(Transform panel, string label, int value)
+        {
+            if (panel == null) return;
+            List<Text> texts = DirectComponents<Text>(panel);
+            int labelIndex = texts.FindIndex(text => text.text == label);
+            if (labelIndex >= 0 && labelIndex + 1 < texts.Count) texts[labelIndex + 1].text = value.ToString();
+            RectTransform background = FindRect(panel, label + " Background");
+            RectTransform fill = background != null ? FindRect(background, "Fill") : null;
+            if (fill != null) fill.anchorMax = new Vector2(Mathf.Clamp01(value / 8f), 1f);
+        }
+
+        static void SetDirectText(List<Text> texts, int index, string value)
+        {
+            if (index >= 0 && index < texts.Count) texts[index].text = value;
+        }
+
+        static List<T> DirectComponents<T>(Transform parent) where T : Component
+        {
+            List<T> result = new List<T>();
+            if (parent == null) return result;
+            foreach (Transform child in parent)
+            {
+                T component = child.GetComponent<T>();
+                if (component != null) result.Add(component);
+            }
+            return result;
+        }
+
+        static T FindNamed<T>(Transform root, string name) where T : Component
+        {
+            if (root == null) return null;
+            foreach (T component in root.GetComponentsInChildren<T>(true))
+                if (component.name == name) return component;
+            return null;
+        }
+
+        static RectTransform FindRect(Transform root, string name)
+        {
+            if (root == null) return null;
+            foreach (RectTransform rect in root.GetComponentsInChildren<RectTransform>(true))
+                if (rect.name == name) return rect;
+            return null;
+        }
+
+        static Text ButtonLabel(Button button)
+        {
+            return button != null ? button.GetComponentInChildren<Text>(true) : null;
         }
 
         void CreatePreviewPlaceholder(RectTransform previewRect, string label)
@@ -742,61 +1246,6 @@ namespace Metin2Dev.Frontend
             authoringLayout = false;
             saveData = null;
             Debug.Log("[Metin2 Frontend] Editable hierarchy generated with " + screens.Count + " screens.", this);
-        }
-
-        void CaptureEditableLayout()
-        {
-            editableLayouts.Clear();
-            Transform layoutRoot = transform.Find(EditableLayoutName);
-            if (layoutRoot == null) return;
-
-            foreach (RectTransform rect in layoutRoot.GetComponentsInChildren<RectTransform>(true))
-            {
-                if (rect == layoutRoot) continue;
-                editableLayouts[LayoutPath(rect, layoutRoot)] = new EditableRectLayout
-                {
-                    anchorMin = rect.anchorMin,
-                    anchorMax = rect.anchorMax,
-                    pivot = rect.pivot,
-                    anchoredPosition = rect.anchoredPosition,
-                    sizeDelta = rect.sizeDelta,
-                    localScale = rect.localScale,
-                    localEulerAngles = rect.localEulerAngles,
-                };
-            }
-            layoutRoot.gameObject.SetActive(false);
-        }
-
-        void ApplyEditableLayout(RectTransform rect)
-        {
-            if (authoringLayout || canvas == null || editableLayouts.Count == 0) return;
-            if (!editableLayouts.TryGetValue(LayoutPath(rect, canvas.transform), out EditableRectLayout layout)) return;
-            rect.anchorMin = layout.anchorMin;
-            rect.anchorMax = layout.anchorMax;
-            rect.pivot = layout.pivot;
-            rect.anchoredPosition = layout.anchoredPosition;
-            rect.sizeDelta = layout.sizeDelta;
-            rect.localScale = layout.localScale;
-            rect.localEulerAngles = layout.localEulerAngles;
-        }
-
-        static string LayoutPath(Transform item, Transform boundary)
-        {
-            List<string> segments = new List<string>();
-            Transform current = item;
-            while (current != null && current != boundary)
-            {
-                int occurrence = 0;
-                if (current.parent != null)
-                {
-                    for (int index = 0; index < current.GetSiblingIndex(); index++)
-                        if (current.parent.GetChild(index).name == current.name) occurrence++;
-                }
-                segments.Add(current.name + "[" + occurrence + "]");
-                current = current.parent;
-            }
-            segments.Reverse();
-            return string.Join("/", segments);
         }
 
         IEnumerator LoadGame(Metin2CharacterData character, Text status, RectTransform fill, RectTransform footer)
@@ -1096,7 +1545,6 @@ namespace Metin2Dev.Frontend
             rect.pivot = pivot;
             rect.anchoredPosition = position;
             rect.sizeDelta = size;
-            ApplyEditableLayout(rect);
             return rect;
         }
 
