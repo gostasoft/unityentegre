@@ -38,16 +38,18 @@ namespace Metin2Dev.Frontend.Editor
             Root + "/Resources/Metin2Frontend/Portraits/face_shaman.png",
         };
 
-        [MenuItem("Tools/Metin2/Build Login Flow", priority = 20)]
-        public static void Build()
-        {
-            BuildInternal(true);
-        }
-
-        [MenuItem("Tools/Metin2/Open Login Flow", priority = 21)]
+        [MenuItem("Tools/Metin2/Open Login Flow", priority = 20)]
         public static void Open()
         {
-            if (!File.Exists(ScenePath)) BuildInternal(false);
+            if (!File.Exists(ScenePath))
+            {
+                const string message = "Kaydedilmiş giriş sahnesi bulunamadı: " + ScenePath +
+                    "\n\nGüvenlik için bu menü yeni sahne üretmez ve mevcut tasarımın üzerine yazmaz.";
+                Debug.LogError("[Metin2 Frontend] " + message);
+                EditorUtility.DisplayDialog("Metin2 - Giriş Sahnesi Bulunamadı", message, "Tamam");
+                return;
+            }
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
         }
 
