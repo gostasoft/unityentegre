@@ -133,6 +133,7 @@ namespace Metin2Dev.Frontend
                 : JsonUtility.FromJson<Metin2FrontendSaveData>(json) ?? new Metin2FrontendSaveData();
             saveData.accountId = accountId.Trim();
             SanitizeCharacterSlots();
+            if (FirstOccupiedSlot() < 0) saveData.empire = Metin2Empire.None;
             selectedSlot = FirstOccupiedSlot();
         }
 
@@ -147,8 +148,13 @@ namespace Metin2Dev.Frontend
 
         int FirstOccupiedSlot()
         {
-            int occupied = Array.FindIndex(saveData.characters, character => character != null);
+            int occupied = Array.FindIndex(saveData.characters, IsCreatedCharacter);
             return occupied >= 0 ? occupied : -1;
+        }
+
+        static bool IsCreatedCharacter(Metin2CharacterData character)
+        {
+            return character != null && !string.IsNullOrWhiteSpace(character.characterName);
         }
 
         void SanitizeCharacterSlots()
@@ -170,7 +176,7 @@ namespace Metin2Dev.Frontend
                 return;
             }
 
-            int emptySlot = Array.FindIndex(saveData.characters, character => character == null);
+            int emptySlot = Array.FindIndex(saveData.characters, character => !IsCreatedCharacter(character));
             BeginCreate(emptySlot >= 0 ? emptySlot : 0);
         }
 
@@ -469,7 +475,8 @@ namespace Metin2Dev.Frontend
             }
             RectTransform root = BeginScreen("Character Selection", config.selectionBackground);
             saveData.EnsureSlots();
-            if (selectedSlot < 0 || selectedSlot >= saveData.characters.Length || saveData.characters[selectedSlot] == null)
+            if (selectedSlot < 0 || selectedSlot >= saveData.characters.Length ||
+                !IsCreatedCharacter(saveData.characters[selectedSlot]))
                 selectedSlot = FirstOccupiedSlot();
             Metin2CharacterData selected = selectedSlot >= 0 ? saveData.characters[selectedSlot] : null;
 
@@ -484,7 +491,7 @@ namespace Metin2Dev.Frontend
             for (int slot = 0; slot < saveData.characters.Length; slot++)
             {
                 Metin2CharacterData character = saveData.characters[slot];
-                if (character == null) continue;
+                if (!IsCreatedCharacter(character)) continue;
                 int captured = slot;
                 Text slotLabel;
                 Button slotButton = CreateButton(listPanel,
@@ -503,7 +510,7 @@ namespace Metin2Dev.Frontend
                 visibleRow++;
             }
 
-            int emptySlot = Array.FindIndex(saveData.characters, character => character == null);
+            int emptySlot = Array.FindIndex(saveData.characters, character => !IsCreatedCharacter(character));
             if (emptySlot >= 0)
             {
                 Text newLabel;
@@ -671,7 +678,8 @@ namespace Metin2Dev.Frontend
                     status.text = "Karakter adı en az 2 harf olmalı.";
                     return;
                 }
-                if (saveData.characters.Any(item => item != null && string.Equals(item.characterName, candidate, StringComparison.OrdinalIgnoreCase)))
+                if (saveData.characters.Any(item => IsCreatedCharacter(item) &&
+                    string.Equals(item.characterName, candidate, StringComparison.OrdinalIgnoreCase)))
                 {
                     status.text = "Bu isimde bir karakter zaten var.";
                     return;
@@ -698,7 +706,7 @@ namespace Metin2Dev.Frontend
         void ShowDeleteConfirmation(int slot)
         {
             Metin2CharacterData character = saveData.characters[slot];
-            if (character == null) return;
+            if (!IsCreatedCharacter(character)) return;
 
             RectTransform shade = CreateRect(screenRoot, "Confirmation Shade", Vector2.zero, Vector2.one,
                 new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
@@ -887,7 +895,8 @@ namespace Metin2Dev.Frontend
         void BindEditableCharacterSelection(RectTransform root)
         {
             saveData.EnsureSlots();
-            if (selectedSlot < 0 || selectedSlot >= saveData.characters.Length || saveData.characters[selectedSlot] == null)
+            if (selectedSlot < 0 || selectedSlot >= saveData.characters.Length ||
+                !IsCreatedCharacter(saveData.characters[selectedSlot]))
                 selectedSlot = FirstOccupiedSlot();
             Metin2CharacterData selected = selectedSlot >= 0 ? saveData.characters[selectedSlot] : null;
 
@@ -926,7 +935,7 @@ namespace Metin2Dev.Frontend
                 for (int slot = 0; slot < saveData.characters.Length; slot++)
                 {
                     Metin2CharacterData character = saveData.characters[slot];
-                    if (character == null || slotTemplate == null) continue;
+                    if (!IsCreatedCharacter(character) || slotTemplate == null) continue;
                     int captured = slot;
                     Button row = visibleRow == 0
                         ? slotTemplate
@@ -951,7 +960,7 @@ namespace Metin2Dev.Frontend
                 }
                 if (slotTemplate != null && visibleRow == 0) slotTemplate.gameObject.SetActive(false);
 
-                int emptySlot = Array.FindIndex(saveData.characters, character => character == null);
+                int emptySlot = Array.FindIndex(saveData.characters, character => !IsCreatedCharacter(character));
                 if (newCharacter != null)
                 {
                     newCharacter.gameObject.SetActive(emptySlot >= 0);
@@ -1077,7 +1086,7 @@ namespace Metin2Dev.Frontend
                         if (status != null) status.text = "Karakter adı en az 2 harf olmalı.";
                         return;
                     }
-                    if (saveData.characters.Any(item => item != null &&
+                    if (saveData.characters.Any(item => IsCreatedCharacter(item) &&
                         string.Equals(item.characterName, candidate, StringComparison.OrdinalIgnoreCase)))
                     {
                         if (status != null) status.text = "Bu isimde bir karakter zaten var.";
