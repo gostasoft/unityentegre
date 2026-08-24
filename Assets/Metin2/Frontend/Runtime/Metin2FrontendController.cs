@@ -24,6 +24,13 @@ namespace Metin2Dev.Frontend
         static readonly string[] ClassNames = { "Savaşçı", "Ninja", "Sura", "Şaman" };
         static readonly string[] ClassButtonNames =
             { "Savaşçı Button", "Ninja Button", "Sura Button", "Şaman Button" };
+        static readonly string[] ClassPortraitResourcePaths =
+        {
+            "Metin2Frontend/Portraits/face_warrior",
+            "Metin2Frontend/Portraits/face_assassin",
+            "Metin2Frontend/Portraits/face_sura",
+            "Metin2Frontend/Portraits/face_shaman",
+        };
         static readonly string[] ClassDescriptions =
         {
             "Güçlü bedeni ve yakın dövüş yeteneğiyle savaş alanının ön saflarında yer alır.",
@@ -77,6 +84,7 @@ namespace Metin2Dev.Frontend
         bool authoringLayout;
         bool useEditableHierarchy;
         Vector2 editableCharacterSlotBase;
+        readonly Texture2D[] classPortraits = new Texture2D[4];
 
         public Metin2FrontendConfig Config => config;
 
@@ -1023,12 +1031,19 @@ namespace Metin2Dev.Frontend
             RectTransform previewRect = FindRect(root, "Creation Character FBX Preview");
             for (int index = 0; index < ClassNames.Length; index++)
                 BindEditableClassButton(classPanel, (Metin2CharacterClass)index);
-            List<Text> classTexts = classPanel != null ? DirectComponents<Text>(classPanel) : new List<Text>();
-            if (classTexts.Count > 1) classTexts[1].text = ClassDescriptions[(int)draftClass];
+            Text classDescription = FindOrNameDirectText(classPanel, "Character Class Description", text =>
+                ClassDescriptions.Contains(text.text));
+            if (classDescription != null) classDescription.text = ClassDescriptions[(int)draftClass];
 
-            List<Text> panelTexts = panel != null ? DirectComponents<Text>(panel) : new List<Text>();
-            SetDirectText(panelTexts, 1, ClassNames[(int)draftClass].ToUpperInvariant());
-            SetDirectText(panelTexts, 3, string.Empty);
+            Text classTitle = FindOrNameDirectText(panel, "Selected Class Name", text =>
+                ClassNames.Any(name => string.Equals(text.text, name.ToUpperInvariant(),
+                    StringComparison.OrdinalIgnoreCase)));
+            if (classTitle != null) classTitle.text = ClassNames[(int)draftClass].ToUpperInvariant();
+            FindOrNameDirectText(panel, "Gender Title", text =>
+                string.Equals(NormalizeTurkish(text.text), "cinsiyet", StringComparison.Ordinal));
+            Text status = FindOrNameDirectText(panel, "Creation Status", text =>
+                string.IsNullOrWhiteSpace(text.text));
+            if (status != null) status.text = string.Empty;
             UpdateEditableStat(panel, "VIT", StartingStats[(int)draftClass, 0]);
             UpdateEditableStat(panel, "INT", StartingStats[(int)draftClass, 1]);
             UpdateEditableStat(panel, "STR", StartingStats[(int)draftClass, 2]);
@@ -1057,7 +1072,6 @@ namespace Metin2Dev.Frontend
                 nameInput.onValueChanged.RemoveAllListeners();
                 nameInput.onValueChanged.AddListener(value => draftName = value);
             }
-            Text status = panelTexts.ElementAtOrDefault(3);
             Button create = FindNamed<Button>(panel, "Kaydet Button");
             Button back = FindNamed<Button>(panel, "Geri Button");
             if (create != null)
@@ -1110,10 +1124,15 @@ namespace Metin2Dev.Frontend
             if (classPanel == null) return;
             int index = (int)characterClass;
             Button button = FindNamed<Button>(classPanel, ClassButtonNames[index]) ??
-                DirectComponents<Button>(classPanel).FirstOrDefault(candidate =>
-                    string.Equals(ButtonLabel(candidate)?.text, ClassNames[index], StringComparison.OrdinalIgnoreCase));
+                classPanel.GetComponentsInChildren<Button>(true).FirstOrDefault(candidate =>
+                    NormalizeTurkish(candidate.name).Contains(NormalizeTurkish(ClassNames[index])) ||
+                    string.Equals(NormalizeTurkish(ButtonLabel(candidate)?.text),
+                        NormalizeTurkish(ClassNames[index]), StringComparison.Ordinal));
             if (button == null) return;
-            button.onClick.RemoveAllListeners();
+            // Authored screens can retain an older serialized click target after their
+            // children are reordered. Replacing the event clears both that mapping and
+            // runtime listeners before assigning the class explicitly.
+            button.onClick = new Button.ButtonClickedEvent();
             button.onClick.AddListener(() =>
             {
                 draftClass = characterClass;
@@ -1155,10 +1174,8 @@ namespace Metin2Dev.Frontend
 
             RawImage target = portraitRect.GetComponent<RawImage>() ?? portraitRect.gameObject.AddComponent<RawImage>();
             target.raycastTarget = false;
-            Metin2CharacterPreview preview = portraitRect.GetComponent<Metin2CharacterPreview>() ??
-                portraitRect.gameObject.AddComponent<Metin2CharacterPreview>();
-            preview.Initialize(target, 256, true);
-            preview.Show(config, character.characterClass, character.gender);
+            target.texture = GetClassPortrait(character.characterClass);
+            target.color = target.texture != null ? Color.white : new Color(0.12f, 0.105f, 0.09f, 0.96f);
         }
 
         void BindEditableLoading(RectTransform root, Metin2CharacterData character)
@@ -1211,11 +1228,50 @@ namespace Metin2Dev.Frontend
         {
             if (panel == null) return;
             List<Text> texts = DirectComponents<Text>(panel);
-            int labelIndex = texts.FindIndex(text => text.text == label);
-            if (labelIndex >= 0 && labelIndex + 1 < texts.Count) texts[labelIndex + 1].text = value.ToString();
-            RectTransform background = FindRect(panel, label + " Background");
+            Text labelText = FindNamed<Text>(panel, label + " Label") ??
+                texts.FirstOrDefault(text => string.Equals(text.text, label, StringComparison.OrdinalIgnoreCase));
+            if (labelText != null) labelText.name = label + " Label";
+
+            Text valueText = FindNamed<Text>(panel, label + " Value");
+            if (valueText == null && labelText != null)
+            {
+                Vector2 labelPosition = labelText.rectTransform.anchoredPosition;
+                valueText = texts
+                    .Where(text => text != labelText && int.TryParse(text.text, out _))
+                    .OrderBy(text => Mathf.Abs(text.rectTransform.anchoredPosition.y - labelPosition.y))
+                    .ThenBy(text => Mathf.Abs(text.rectTransform.anchoredPosition.x - labelPosition.x))
+                    .FirstOrDefault();
+                if (valueText != null) valueText.name = label + " Value";
+            }
+            if (valueText != null) valueText.text = value.ToString();
+
+            RectTransform background = FindRect(panel, label + " Gauge") ?? FindRect(panel, label + " Background");
             RectTransform fill = background != null ? FindRect(background, "Fill") : null;
             if (fill != null) fill.anchorMax = new Vector2(Mathf.Clamp01(value / 8f), 1f);
+        }
+
+        static Text FindOrNameDirectText(Transform parent, string objectName, Func<Text, bool> predicate)
+        {
+            if (parent == null) return null;
+            Text result = FindNamed<Text>(parent, objectName) ?? DirectComponents<Text>(parent).FirstOrDefault(predicate);
+            if (result != null) result.name = objectName;
+            return result;
+        }
+
+        Texture2D GetClassPortrait(Metin2CharacterClass characterClass)
+        {
+            int index = Mathf.Clamp((int)characterClass, 0, ClassPortraitResourcePaths.Length - 1);
+            if (classPortraits[index] == null)
+                classPortraits[index] = Resources.Load<Texture2D>(ClassPortraitResourcePaths[index]);
+            return classPortraits[index];
+        }
+
+        static string NormalizeTurkish(string value)
+        {
+            return (value ?? string.Empty).Trim().ToLowerInvariant()
+                .Replace("ş", "s").Replace("ı", "i").Replace("ç", "c")
+                .Replace("ğ", "g").Replace("ü", "u").Replace("ö", "o")
+                .Replace(" ", string.Empty);
         }
 
         static void SetDirectText(List<Text> texts, int index, string value)

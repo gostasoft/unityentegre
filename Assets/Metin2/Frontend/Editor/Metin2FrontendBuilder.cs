@@ -30,6 +30,13 @@ namespace Metin2Dev.Frontend.Editor
             "sura_m", "sura_w",
             "shaman_m", "shaman_w",
         };
+        static readonly string[] PortraitPaths =
+        {
+            Root + "/Resources/Metin2Frontend/Portraits/face_warrior.png",
+            Root + "/Resources/Metin2Frontend/Portraits/face_assassin.png",
+            Root + "/Resources/Metin2Frontend/Portraits/face_sura.png",
+            Root + "/Resources/Metin2Frontend/Portraits/face_shaman.png",
+        };
 
         [MenuItem("Tools/Metin2/Build Login Flow", priority = 20)]
         public static void Build()
@@ -77,10 +84,13 @@ namespace Metin2Dev.Frontend.Editor
                 if (config.faceTextures == null || index >= config.faceTextures.Length || config.faceTextures[index] == null)
                     problems.Add(RaceFolders[index] + ": face texture missing");
             }
+            foreach (string portraitPath in PortraitPaths)
+                if (AssetDatabase.LoadAssetAtPath<Texture2D>(portraitPath) == null)
+                    problems.Add(Path.GetFileNameWithoutExtension(portraitPath) + ": class portrait missing");
 
             if (problems.Count > 0)
                 throw new InvalidOperationException("Frontend character validation failed:\n" + string.Join("\n", problems));
-            Debug.Log("[Metin2 Frontend] All 8 male/female character FBX models and textures are valid.");
+            Debug.Log("[Metin2 Frontend] All 8 male/female character FBX models, textures and 4 original class portraits are valid.");
         }
 
         public static void BuildFromCommandLine()

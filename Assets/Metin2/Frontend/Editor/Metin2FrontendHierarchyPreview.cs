@@ -208,6 +208,26 @@ namespace Metin2Dev.Frontend.Editor
                 placeholder.raycastTarget = false;
                 changed = true;
             }
+
+            RawImage portraitImage = portrait.GetComponent<RawImage>();
+            Texture2D examplePortrait = Resources.Load<Texture2D>(
+                "Metin2Frontend/Portraits/face_warrior");
+            if (portraitImage != null && portraitImage.texture != examplePortrait)
+            {
+                Undo.RecordObject(portraitImage, "Set character portrait example");
+                portraitImage.texture = examplePortrait;
+                portraitImage.color = examplePortrait != null
+                    ? Color.white
+                    : new Color(0.12f, 0.105f, 0.09f, 0.96f);
+                changed = true;
+            }
+            Text portraitPlaceholder = FindChild(portrait, "Portrait Placeholder")?.GetComponent<Text>();
+            if (portraitPlaceholder != null && portraitPlaceholder.gameObject.activeSelf == (examplePortrait != null))
+            {
+                Undo.RecordObject(portraitPlaceholder.gameObject, "Toggle portrait placeholder");
+                portraitPlaceholder.gameObject.SetActive(examplePortrait == null);
+                changed = true;
+            }
             return changed;
         }
 
