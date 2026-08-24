@@ -18,12 +18,15 @@ namespace Metin2Dev.Frontend
         RenderTexture renderTexture;
         Material[] runtimeMaterials = Array.Empty<Material>();
         float modelYaw;
+        bool portraitFraming;
 
-        public void Initialize(RawImage target)
+        public void Initialize(RawImage target, int resolution = 768, bool usePortraitFraming = false)
         {
             DisposePreview();
+            portraitFraming = usePortraitFraming;
+            resolution = Mathf.Clamp(resolution, 128, 768);
 
-            renderTexture = new RenderTexture(768, 768, 24, RenderTextureFormat.ARGB32)
+            renderTexture = new RenderTexture(resolution, resolution, 24, RenderTextureFormat.ARGB32)
             {
                 name = "Metin2 Character Preview",
                 antiAliasing = 4,
@@ -142,11 +145,11 @@ namespace Metin2Dev.Frontend
                 }
             }
             if (!hasBounds) return;
-            float scale = 2.95f / Mathf.Max(0.001f, bounds.size.y);
+            float scale = (portraitFraming ? 5f : 2.95f) / Mathf.Max(0.001f, bounds.size.y);
             currentModel.transform.localScale = Vector3.one * scale;
             currentModel.transform.localPosition = new Vector3(
                 -bounds.center.x * scale,
-                -bounds.center.y * scale - 0.08f,
+                -bounds.center.y * scale - (portraitFraming ? 1.25f : 0.08f),
                 -bounds.center.z * scale);
         }
 

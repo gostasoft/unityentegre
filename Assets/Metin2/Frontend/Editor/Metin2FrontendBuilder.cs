@@ -56,6 +56,33 @@ namespace Metin2Dev.Frontend.Editor
             Debug.Log("[Metin2 Frontend] Last local account, empire and character slots were reset.");
         }
 
+        [MenuItem("Tools/Metin2/Validate Frontend Character Models", priority = 23)]
+        public static void ValidateCharacterModels()
+        {
+            Metin2FrontendConfig config = AssetDatabase.LoadAssetAtPath<Metin2FrontendConfig>(ConfigPath);
+            if (config == null) throw new InvalidOperationException("Frontend config is missing: " + ConfigPath);
+
+            List<string> problems = new List<string>();
+            for (int index = 0; index < RaceFolders.Length; index++)
+            {
+                GameObject prefab = config.racePrefabs != null && index < config.racePrefabs.Length
+                    ? config.racePrefabs[index]
+                    : null;
+                if (prefab == null) problems.Add(RaceFolders[index] + ": FBX missing");
+                else if (prefab.GetComponentsInChildren<Renderer>(true).Length == 0)
+                    problems.Add(RaceFolders[index] + ": FBX has no renderer");
+
+                if (config.bodyTextures == null || index >= config.bodyTextures.Length || config.bodyTextures[index] == null)
+                    problems.Add(RaceFolders[index] + ": body texture missing");
+                if (config.faceTextures == null || index >= config.faceTextures.Length || config.faceTextures[index] == null)
+                    problems.Add(RaceFolders[index] + ": face texture missing");
+            }
+
+            if (problems.Count > 0)
+                throw new InvalidOperationException("Frontend character validation failed:\n" + string.Join("\n", problems));
+            Debug.Log("[Metin2 Frontend] All 8 male/female character FBX models and textures are valid.");
+        }
+
         public static void BuildFromCommandLine()
         {
             BuildInternal(false);
@@ -135,6 +162,10 @@ namespace Metin2Dev.Frontend.Editor
             Metin2FrontendController controller = root.AddComponent<Metin2FrontendController>();
             controller.Configure(config);
             controller.BuildEditableHierarchy();
+            Transform characterSelection = root.transform.Find(
+                "Metin2 Frontend Editable Layout/Character Selection");
+            if (characterSelection != null)
+                Metin2FrontendHierarchyPreview.PrepareCharacterSlotTemplate(characterSelection);
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
 

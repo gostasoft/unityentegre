@@ -22,6 +22,8 @@ namespace Metin2Dev.Frontend
         const float ReferenceHeight = 768f;
 
         static readonly string[] ClassNames = { "Savaşçı", "Ninja", "Sura", "Şaman" };
+        static readonly string[] ClassButtonNames =
+            { "Savaşçı Button", "Ninja Button", "Sura Button", "Şaman Button" };
         static readonly string[] ClassDescriptions =
         {
             "Güçlü bedeni ve yakın dövüş yeteneğiyle savaş alanının ön saflarında yer alır.",
@@ -74,9 +76,7 @@ namespace Metin2Dev.Frontend
         Coroutine loadingRoutine;
         bool authoringLayout;
         bool useEditableHierarchy;
-        bool editableCharacterListCached;
         Vector2 editableCharacterSlotBase;
-        Vector2 editableNewCharacterBase;
 
         public Metin2FrontendConfig Config => config;
 
@@ -924,11 +924,13 @@ namespace Metin2Dev.Frontend
                 Button slotTemplate = authoredSlots.FirstOrDefault();
                 foreach (Button unusedSlot in authoredSlots.Skip(1)) unusedSlot.gameObject.SetActive(false);
 
-                if (slotTemplate != null && newCharacter != null && !editableCharacterListCached)
+                float slotStep = 94f;
+                if (slotTemplate != null)
                 {
-                    editableCharacterSlotBase = slotTemplate.GetComponent<RectTransform>().anchoredPosition;
-                    editableNewCharacterBase = newCharacter.GetComponent<RectTransform>().anchoredPosition;
-                    editableCharacterListCached = true;
+                    RectTransform templateRect = slotTemplate.GetComponent<RectTransform>();
+                    editableCharacterSlotBase = templateRect.anchoredPosition;
+                    slotStep = Mathf.Max(8f, templateRect.rect.height + 8f);
+                    slotTemplate.gameObject.SetActive(false);
                 }
 
                 int visibleRow = 0;
@@ -937,28 +939,20 @@ namespace Metin2Dev.Frontend
                     Metin2CharacterData character = saveData.characters[slot];
                     if (!IsCreatedCharacter(character) || slotTemplate == null) continue;
                     int captured = slot;
-                    Button row = visibleRow == 0
-                        ? slotTemplate
-                        : Instantiate(slotTemplate, listPanel, false);
-                    if (visibleRow > 0) row.name = "Runtime Character Slot " + visibleRow;
-                    row.gameObject.SetActive(true);
+                    Button row = Instantiate(slotTemplate, listPanel, false);
+                    row.name = "Runtime Character Slot " + slot;
                     RectTransform rowRect = row.GetComponent<RectTransform>();
-                    rowRect.anchoredPosition = editableCharacterSlotBase + new Vector2(0f, -94f * visibleRow);
-                    Text label = ButtonLabel(row);
-                    if (label != null)
-                    {
-                        label.text = character.characterName + "\n" + ClassNames[(int)character.characterClass] +
-                            "  •  Sv. " + character.level;
-                    }
+                    rowRect.anchoredPosition = editableCharacterSlotBase + new Vector2(0f, -slotStep * visibleRow);
+                    ConfigureEditableCharacterRow(row, character);
                     row.onClick.RemoveAllListeners();
                     row.onClick.AddListener(() =>
                     {
                         selectedSlot = captured;
                         ShowCharacterSelection();
                     });
+                    row.gameObject.SetActive(true);
                     visibleRow++;
                 }
-                if (slotTemplate != null && visibleRow == 0) slotTemplate.gameObject.SetActive(false);
 
                 int emptySlot = Array.FindIndex(saveData.characters, character => !IsCreatedCharacter(character));
                 if (newCharacter != null)
@@ -966,8 +960,6 @@ namespace Metin2Dev.Frontend
                     newCharacter.gameObject.SetActive(emptySlot >= 0);
                     if (emptySlot >= 0)
                     {
-                        Vector2 rowStep = editableNewCharacterBase - editableCharacterSlotBase;
-                        newCharacter.GetComponent<RectTransform>().anchoredPosition = editableCharacterSlotBase + rowStep * visibleRow;
                         newCharacter.onClick.RemoveAllListeners();
                         newCharacter.onClick.AddListener(() => BeginCreate(emptySlot));
                     }
@@ -1029,17 +1021,8 @@ namespace Metin2Dev.Frontend
             RectTransform classPanel = FindRect(root, "Character Class Selection");
             RectTransform panel = FindRect(root, "Character Registration");
             RectTransform previewRect = FindRect(root, "Creation Character FBX Preview");
-            List<Button> classButtons = classPanel != null ? DirectComponents<Button>(classPanel) : new List<Button>();
-            for (int index = 0; index < classButtons.Count && index < ClassNames.Length; index++)
-            {
-                int captured = index;
-                classButtons[index].onClick.RemoveAllListeners();
-                classButtons[index].onClick.AddListener(() =>
-                {
-                    draftClass = (Metin2CharacterClass)captured;
-                    ShowCharacterCreation();
-                });
-            }
+            for (int index = 0; index < ClassNames.Length; index++)
+                BindEditableClassButton(classPanel, (Metin2CharacterClass)index);
             List<Text> classTexts = classPanel != null ? DirectComponents<Text>(classPanel) : new List<Text>();
             if (classTexts.Count > 1) classTexts[1].text = ClassDescriptions[(int)draftClass];
 
@@ -1051,8 +1034,10 @@ namespace Metin2Dev.Frontend
             UpdateEditableStat(panel, "STR", StartingStats[(int)draftClass, 2]);
             UpdateEditableStat(panel, "DEX", StartingStats[(int)draftClass, 3]);
 
-            Button male = FindNamed<Button>(panel, "Erkek Button");
-            Button female = FindNamed<Button>(panel, "Kadın Button");
+            Button male = FindNamed<Button>(panel, "Erkek Button") ??
+                DirectComponents<Button>(panel).FirstOrDefault(button => ButtonLabel(button)?.text == "Erkek");
+            Button female = FindNamed<Button>(panel, "Kadın Button") ??
+                DirectComponents<Button>(panel).FirstOrDefault(button => ButtonLabel(button)?.text == "Kadın");
             if (male != null)
             {
                 male.onClick.RemoveAllListeners();
@@ -1118,6 +1103,62 @@ namespace Metin2Dev.Frontend
                 characterClass = draftClass,
                 gender = draftGender,
             });
+        }
+
+        void BindEditableClassButton(Transform classPanel, Metin2CharacterClass characterClass)
+        {
+            if (classPanel == null) return;
+            int index = (int)characterClass;
+            Button button = FindNamed<Button>(classPanel, ClassButtonNames[index]) ??
+                DirectComponents<Button>(classPanel).FirstOrDefault(candidate =>
+                    string.Equals(ButtonLabel(candidate)?.text, ClassNames[index], StringComparison.OrdinalIgnoreCase));
+            if (button == null) return;
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(() =>
+            {
+                draftClass = characterClass;
+                ShowCharacterCreation();
+            });
+        }
+
+        void ConfigureEditableCharacterRow(Button row, Metin2CharacterData character)
+        {
+            RectTransform rowRect = row.GetComponent<RectTransform>();
+            Text name = FindNamed<Text>(row.transform, "Character Name") ?? ButtonLabel(row);
+            if (name != null)
+            {
+                name.name = "Character Name";
+                name.text = character.characterName;
+            }
+
+            Text details = FindNamed<Text>(row.transform, "Character Details");
+            if (details == null)
+            {
+                details = CreateText(rowRect, string.Empty, 11, FontStyle.Normal, TextAnchor.MiddleLeft,
+                    new Vector2(78f, -40f), new Vector2(Mathf.Max(72f, rowRect.rect.width - 86f), 22f),
+                    new Color(0.82f, 0.74f, 0.59f));
+                details.name = "Character Details";
+            }
+            details.text = ClassNames[(int)character.characterClass] + "  •  Sv. " + character.level;
+
+            RectTransform portraitRect = FindRect(row.transform, "Character Portrait");
+            if (portraitRect == null)
+            {
+                portraitRect = CreateRect(rowRect, "Character Portrait", new Vector2(0f, 1f), new Vector2(0f, 1f),
+                    new Vector2(0f, 1f), new Vector2(8f, -8f), new Vector2(62f, 62f));
+                RawImage portraitImage = portraitRect.gameObject.AddComponent<RawImage>();
+                portraitImage.color = Color.white;
+                portraitImage.raycastTarget = false;
+            }
+            foreach (Text placeholder in portraitRect.GetComponentsInChildren<Text>(true))
+                if (placeholder.name == "Portrait Placeholder") placeholder.gameObject.SetActive(false);
+
+            RawImage target = portraitRect.GetComponent<RawImage>() ?? portraitRect.gameObject.AddComponent<RawImage>();
+            target.raycastTarget = false;
+            Metin2CharacterPreview preview = portraitRect.GetComponent<Metin2CharacterPreview>() ??
+                portraitRect.gameObject.AddComponent<Metin2CharacterPreview>();
+            preview.Initialize(target, 256, true);
+            preview.Show(config, character.characterClass, character.gender);
         }
 
         void BindEditableLoading(RectTransform root, Metin2CharacterData character)
