@@ -172,6 +172,10 @@ namespace Metin2Dev.Frontend.Editor
             Metin2FrontendController controller = root.AddComponent<Metin2FrontendController>();
             controller.Configure(config);
             controller.BuildEditableHierarchy();
+            Canvas editableCanvas = root.GetComponentsInChildren<Canvas>(true)
+                .FirstOrDefault(candidate => candidate.name == "Metin2 Frontend Editable Layout");
+            if (editableCanvas != null)
+                Metin2FrontendCompositionAuthoring.EnsureCanvas(editableCanvas);
             Transform characterSelection = root.transform.Find(
                 "Metin2 Frontend Editable Layout/Character Selection");
             if (characterSelection != null)
