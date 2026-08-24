@@ -1181,11 +1181,11 @@ namespace Metin2Dev.Frontend
         void BindEditableLoading(RectTransform root, Metin2CharacterData character)
         {
             int loadingCount = config.loadingBackgrounds != null ? config.loadingBackgrounds.Length : 0;
-            if (loadingCount > 0)
+            RawImage background = root.GetComponent<RawImage>();
+            if (background != null && background.texture == null && loadingCount > 0)
             {
                 int imageIndex = Mathf.Clamp((int)character.characterClass, 0, loadingCount - 1);
-                RawImage background = root.GetComponent<RawImage>();
-                if (background != null) background.texture = config.loadingBackgrounds[imageIndex];
+                background.texture = config.loadingBackgrounds[imageIndex];
             }
             RectTransform footer = FindRect(root, "Loading Footer");
             List<Text> texts = footer != null ? DirectComponents<Text>(footer) : new List<Text>();
