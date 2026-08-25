@@ -12,6 +12,7 @@ namespace Metin2Dev.Gameplay
 {
     public sealed class Metin2GameplayUI : MonoBehaviour
     {
+        public static int CurrentGold => instance != null ? instance.gold : 0;
         const float ReferenceWidth = 1024f;
         const float ReferenceHeight = 768f;
         static Metin2GameplayUI instance;

@@ -6,6 +6,7 @@ namespace Metin2Dev.Gameplay
     public static class Metin2GameplaySession
     {
         public static bool HasCharacter { get; private set; }
+        public static string AccountName { get; private set; }
         public static string CharacterName { get; private set; }
         public static Metin2CharacterClass CharacterClass { get; private set; }
         public static Metin2Gender Gender { get; private set; }
@@ -23,11 +24,12 @@ namespace Metin2Dev.Gameplay
         public static Texture2D HairTexture { get; private set; }
 
         public static void Select(Metin2CharacterData character, Metin2Empire empire, GameObject playerPrefab,
-            GameObject hairPrefab, Texture2D bodyTexture, Texture2D faceTexture, Texture2D hairTexture)
+            GameObject hairPrefab, Texture2D bodyTexture, Texture2D faceTexture, Texture2D hairTexture, string accountName = "")
         {
             if (character == null) return;
             Metin2QuickSlotSystem.ClearAll();
             HasCharacter = true;
+            AccountName = string.IsNullOrWhiteSpace(accountName) ? "local" : accountName.Trim();
             CharacterName = character.characterName;
             CharacterClass = character.characterClass;
             Gender = character.gender;
@@ -50,6 +52,7 @@ namespace Metin2Dev.Gameplay
             if (HasCharacter) return;
             Metin2QuickSlotSystem.ClearAll();
             HasCharacter = true;
+            AccountName = "editor";
             CharacterName = "Oyuncu";
             CharacterClass = Metin2CharacterClass.Warrior;
             Gender = Metin2Gender.Male;

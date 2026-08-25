@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Geçersiz oyun sunucusu anahtarı.' }, { status: 401 });
 
   await ensureDatabase();
-  const [settingsRows, maps, entities, items, spawns, worldPlacements, drops, shops, shopItems, events, sanctions, warps, expLevels, biology, chests, chestItems, fishing, fishingEvents, revision] = await Promise.all([
+  const [settingsRows, maps, entities, items, spawns, worldPlacements, drops, shops, shopItems, events, legacySanctions, playerSanctions, warps, expLevels, biology, biologyRewards, chests, chestItems, fishing, fishingEvents, revision] = await Promise.all([
     rows('SELECT key,value FROM settings'),
     rows('SELECT * FROM maps WHERE enabled=1'),
     rows('SELECT * FROM entities WHERE enabled=1'),
@@ -27,9 +27,11 @@ export async function GET(request: NextRequest) {
     rows('SELECT * FROM shop_items'),
     rows(`SELECT * FROM events WHERE enabled=1 AND datetime(end_at)>=datetime('now')`),
     rows(`SELECT account,character_name,ban_until,ban_reason,mute_until FROM players WHERE ban_until IS NOT NULL OR mute_until IS NOT NULL`),
+    rows(`SELECT s.*,p.account,p.character_name,CASE WHEN s.sanction_type IN ('account','character','hwid','pc','ip') THEN COALESCE(s.expires_at,'9999-12-31T23:59:59.000Z') END AS ban_until,CASE WHEN s.sanction_type IN ('account','character','hwid','pc','ip') THEN s.reason END AS ban_reason,CASE WHEN s.sanction_type='mute' THEN COALESCE(s.expires_at,'9999-12-31T23:59:59.000Z') END AS mute_until FROM player_sanctions s JOIN players p ON p.id=s.player_id WHERE s.active=1 AND (s.expires_at IS NULL OR datetime(s.expires_at)>=datetime('now'))`),
     rows(`SELECT w.*,c.name AS category_name FROM warp_entries w LEFT JOIN warp_categories c ON c.id=w.category_id WHERE w.enabled=1 AND COALESCE(c.enabled,1)=1 ORDER BY c.position,w.name`),
     rows('SELECT level,required_exp FROM exp_levels ORDER BY level'),
     rows('SELECT * FROM biology_levels WHERE enabled=1 ORDER BY level'),
+    rows('SELECT * FROM biology_rewards WHERE enabled=1 ORDER BY biology_level,choice_group,id'),
     rows('SELECT * FROM chests WHERE enabled=1 ORDER BY vnum'),
     rows('SELECT * FROM chest_items ORDER BY chest_vnum,chance DESC'),
     rows('SELECT * FROM fishing_rates WHERE enabled=1 ORDER BY chance DESC'),
@@ -64,5 +66,5 @@ export async function GET(request: NextRequest) {
       move_speed: override?.move_speed ?? proto.moveSpeed, folder: proto.folder,
     };
   }).filter(Boolean);
-  return NextResponse.json({ version: revision?.version ?? '0', settings, maps, entities, runtimeEntities, items, spawns, worldPlacements, groups: requestedGroups, drops, shops, shopItems, events, sanctions, warps, expLevels, biology, chests, chestItems, fishing, fishingEvents });
+  return NextResponse.json({ version: revision?.version ?? '0', settings, maps, entities, runtimeEntities, items, spawns, worldPlacements, groups: requestedGroups, drops, shops, shopItems, events, sanctions:[...legacySanctions,...playerSanctions], warps, expLevels, biology, biologyRewards, chests, chestItems, fishing, fishingEvents });
 }

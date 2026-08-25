@@ -21,7 +21,11 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS warp_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1)`,
   `CREATE TABLE IF NOT EXISTS warp_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER NOT NULL, name TEXT NOT NULL, map_code TEXT NOT NULL, x REAL NOT NULL DEFAULT 0, y REAL NOT NULL DEFAULT 0, min_level INTEGER NOT NULL DEFAULT 1, cost INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1)`,
   `CREATE TABLE IF NOT EXISTS exp_levels (id INTEGER PRIMARY KEY AUTOINCREMENT, level INTEGER NOT NULL UNIQUE, required_exp INTEGER NOT NULL DEFAULT 0)`,
-  `CREATE TABLE IF NOT EXISTS biology_levels (id INTEGER PRIMARY KEY AUTOINCREMENT, level INTEGER NOT NULL UNIQUE, item_vnum INTEGER NOT NULL, item_count INTEGER NOT NULL DEFAULT 1, success_chance REAL NOT NULL DEFAULT 100, cooldown_minutes INTEGER NOT NULL DEFAULT 1440, reward TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1)`,
+  `CREATE TABLE IF NOT EXISTS biology_levels (id INTEGER PRIMARY KEY AUTOINCREMENT, level INTEGER NOT NULL UNIQUE, quest_name TEXT NOT NULL DEFAULT '', giver_name TEXT NOT NULL DEFAULT 'Biyolog Chaegirab', item_vnum INTEGER NOT NULL, item_count INTEGER NOT NULL DEFAULT 1, soul_item_vnum INTEGER, success_chance REAL NOT NULL DEFAULT 100, cooldown_minutes INTEGER NOT NULL DEFAULT 1440, reward TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1)`,
+  `CREATE TABLE IF NOT EXISTS biology_rewards (id INTEGER PRIMARY KEY AUTOINCREMENT, biology_level INTEGER NOT NULL, choice_group INTEGER NOT NULL DEFAULT 0, reward_type TEXT NOT NULL DEFAULT 'stat', reward_key TEXT NOT NULL DEFAULT '', reward_value REAL NOT NULL DEFAULT 0, item_vnum INTEGER, item_count INTEGER NOT NULL DEFAULT 1, label TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1)`,
+  `CREATE TABLE IF NOT EXISTS player_inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, slot INTEGER NOT NULL, item_vnum INTEGER NOT NULL, item_name TEXT NOT NULL DEFAULT '', count INTEGER NOT NULL DEFAULT 1, equipped INTEGER NOT NULL DEFAULT 0, sockets TEXT NOT NULL DEFAULT '[]', attributes TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL, UNIQUE(player_id,slot))`,
+  `CREATE TABLE IF NOT EXISTS player_location_history (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, map_code TEXT NOT NULL, x REAL NOT NULL DEFAULT 0, y REAL NOT NULL DEFAULT 0, entered_at TEXT NOT NULL, left_at TEXT, duration_seconds INTEGER NOT NULL DEFAULT 0, stationary_seconds INTEGER NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS player_sanctions (id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL, sanction_type TEXT NOT NULL, target_value TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', starts_at TEXT NOT NULL, expires_at TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT '')`,
   `CREATE TABLE IF NOT EXISTS chests (id INTEGER PRIMARY KEY AUTOINCREMENT, vnum INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, roll_count INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1)`,
   `CREATE TABLE IF NOT EXISTS chest_items (id INTEGER PRIMARY KEY AUTOINCREMENT, chest_vnum INTEGER NOT NULL, item_vnum INTEGER NOT NULL, item_name TEXT NOT NULL DEFAULT '', count INTEGER NOT NULL DEFAULT 1, chance REAL NOT NULL DEFAULT 100)`,
   `CREATE TABLE IF NOT EXISTS fishing_rates (id INTEGER PRIMARY KEY AUTOINCREMENT, fish_vnum INTEGER NOT NULL, name TEXT NOT NULL, chance REAL NOT NULL DEFAULT 1, min_length REAL NOT NULL DEFAULT 0, max_length REAL NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1)`,
@@ -39,7 +43,15 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_shop_items_shop ON shop_items(shop_id)`,
   `CREATE INDEX IF NOT EXISTS idx_events_schedule ON events(start_at, end_at)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_biology_rewards_level ON biology_rewards(biology_level)`,
+  `CREATE INDEX IF NOT EXISTS idx_player_location_history ON player_location_history(player_id,entered_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_player_sanctions_active ON player_sanctions(player_id,active)`,
 ];
+
+const requiredColumns: Record<string, Array<[string,string]>> = {
+  biology_levels: [['quest_name',"TEXT NOT NULL DEFAULT ''"],['giver_name',"TEXT NOT NULL DEFAULT 'Biyolog Chaegirab'"],['soul_item_vnum','INTEGER']],
+  players: [['yang','INTEGER NOT NULL DEFAULT 0'],['won','INTEGER NOT NULL DEFAULT 0'],['last_map_code',"TEXT NOT NULL DEFAULT ''"],['last_x','REAL NOT NULL DEFAULT 0'],['last_y','REAL NOT NULL DEFAULT 0'],['last_ip',"TEXT NOT NULL DEFAULT ''"],['hwid',"TEXT NOT NULL DEFAULT ''"],['pc_id',"TEXT NOT NULL DEFAULT ''"]],
+};
 
 export function database(): D1Database {
   if (!env.DB) throw new Error('DB bağlantısı bulunamadı.');
@@ -49,6 +61,11 @@ export function database(): D1Database {
 export async function ensureDatabase() {
   const db = database();
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
+  for (const [table, columns] of Object.entries(requiredColumns)) {
+    const existing = await db.prepare(`PRAGMA table_info(${table})`).all<{ name:string }>();
+    const names = new Set((existing.results ?? []).map((column) => column.name));
+    for (const [name, definition] of columns) if (!names.has(name)) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`).run();
+  }
   await db.prepare('PRAGMA optimize').run();
   const advancedCount = await db.prepare('SELECT COUNT(*) AS count FROM exp_levels').first<{ count: number }>();
   if (Number(advancedCount?.count ?? 0) === 0) {
@@ -60,11 +77,11 @@ export async function ensureDatabase() {
         const required = level === 1 ? 0 : Math.round(100 * Math.pow(level, 2.45));
         return db.prepare('INSERT OR IGNORE INTO exp_levels (level,required_exp) VALUES (?,?)').bind(level, required);
       }),
-      db.prepare('INSERT OR IGNORE INTO biology_levels (level,item_vnum,item_count,success_chance,cooldown_minutes,reward,enabled) VALUES (30,100,10,100,1440,?,1)').bind('Biyolog görevi ödülü'),
       db.prepare('INSERT INTO warp_categories (name,position,enabled) SELECT ?,0,1 WHERE NOT EXISTS (SELECT 1 FROM warp_categories)').bind('Başlangıç Haritaları'),
       ...channels.map((name, index) => db.prepare('INSERT OR IGNORE INTO server_channels (name,host,port,status,players,updated_at) VALUES (?,?,?,?,0,?)').bind(name, '127.0.0.1', 13000 + index * 10, 'offline', now)),
     ]);
   }
+  await seedBiology(db);
   const count = await db.prepare('SELECT COUNT(*) AS count FROM maps').first<{ count: number }>();
   if (Number(count?.count ?? 0) > 0) return;
 
@@ -108,6 +125,37 @@ export async function ensureDatabase() {
     db.prepare('INSERT INTO drops (entity_id,item_id,chance,min_count,max_count,min_level,max_level) VALUES (?,?,?,?,?,?,?)').bind(metin.id,moonSword.id,2.5,1,1,25,50),
     ...(shop ? [db.prepare('INSERT INTO shop_items (shop_id,item_id,buy_price,sell_price,position) VALUES (?,?,?,?,?)').bind(shop.id,sword.id,1500,250,0)] : []),
   ]);
+}
+
+async function seedBiology(db: D1Database) {
+  const quests = [
+    [30,'Biyoloğun Deneyi 1','Biyolog Chaegirab',30006,10,30220,'+%10 Hareket Hızı'],
+    [40,'Biyoloğun Deneyi 2','Biyolog Chaegirab',30047,15,30221,'+%5 Saldırı Hızı'],
+    [50,'Biyoloğun Deneyi 3','Biyolog Chaegirab',30015,15,30222,'+60 Defans'],
+    [60,'Biyoloğun Deneyi 4','Biyolog Chaegirab',30050,20,30223,'+50 Saldırı Değeri'],
+    [70,'Biyoloğun Deneyi 5','Biyolog Chaegirab',30165,25,30224,'+%11 Hareket Hızı ve +%10 Savunma'],
+    [80,'Biyoloğun Deneyi 6','Biyolog Chaegirab',30166,30,30225,'+%6 Saldırı Hızı ve +%10 Yakın Dövüş Saldırısı'],
+    [85,'Biyoloğun Deneyi 7','Biyolog Chaegirab',30167,40,30226,'Oyuncu sınıflarına karşı +%10 savunma'],
+    [90,'Biyoloğun Deneyi 8','Biyolog Chaegirab',30168,50,30227,'Oyuncu sınıflarına karşı +%8 güçlü'],
+    [92,'Seon-Pyeong Araştırması 1','Seon-Pyeong',30251,10,null,'Seçim: +1000 HP / +120 Defans / +51 Saldırı Değeri'],
+    [94,'Seon-Pyeong Araştırması 2','Seon-Pyeong',30252,20,30228,'Seçim: +1100 HP / +140 Defans / +60 Saldırı Değeri'],
+  ] as const;
+  await db.prepare("DELETE FROM biology_levels WHERE level=30 AND item_vnum=100 AND reward='Biyolog görevi ödülü'").run();
+  for (const quest of quests) await db.prepare(`INSERT OR IGNORE INTO biology_levels (level,quest_name,giver_name,item_vnum,item_count,soul_item_vnum,success_chance,cooldown_minutes,reward,enabled) VALUES (?,?,?,?,?,?,100,1440,?,1)`).bind(...quest).run();
+  const rewards = [
+    [30,0,'stat','MOVE_SPEED',10,null,1,'+%10 Hareket Hızı'],[30,0,'item','ITEM',1,50109,1,'Kırmızı Abanoz Sandık'],
+    [40,0,'stat','ATTACK_SPEED',5,null,1,'+%5 Saldırı Hızı'],[40,0,'item','ITEM',1,50110,1,'İhtişamlı Abanoz Sandık'],
+    [50,0,'stat','DEFENSE',60,null,1,'+60 Defans'],[50,0,'item','ITEM',1,50111,1,'Sarı Abanoz Sandık'],
+    [60,0,'stat','ATTACK_VALUE',50,null,1,'+50 Saldırı Değeri'],[60,0,'item','ITEM',1,50112,1,'Parlak Yeşil Abanoz Sandık'],
+    [70,0,'stat','MOVE_SPEED',11,null,1,'+%11 Hareket Hızı'],[70,0,'stat','DAMAGE_REDUCTION',10,null,1,'+%10 Savunma'],[70,0,'item','ITEM',1,50113,1,'Yeşil Abanoz Sandık'],
+    [80,0,'stat','ATTACK_SPEED',6,null,1,'+%6 Saldırı Hızı'],[80,0,'stat','MELEE_ATTACK',10,null,1,'+%10 Yakın Dövüş Saldırısı'],[80,0,'item','ITEM',1,50114,1,'Mavi Abanoz Sandık'],
+    [85,0,'stat','PVP_DEFENSE',10,null,1,'Sınıflara karşı +%10 savunma'],[85,0,'item','ITEM',1,50115,1,'Koyu Kırmızı Abanoz Sandık'],
+    [90,0,'stat','PVP_DAMAGE',8,null,1,'Sınıflara karşı +%8 güçlü'],[90,0,'item','ITEM',1,50114,1,'Mavi Abanoz Sandık'],
+    [92,1,'stat','MAX_HP',1000,null,1,'+1000 Maks. HP'],[92,1,'stat','DEFENSE',120,null,1,'+120 Defans'],[92,1,'stat','ATTACK_VALUE',51,null,1,'+51 Saldırı Değeri'],
+    [94,1,'stat','MAX_HP',1100,null,1,'+1100 Maks. HP'],[94,1,'stat','DEFENSE',140,null,1,'+140 Defans'],[94,1,'stat','ATTACK_VALUE',60,null,1,'+60 Saldırı Değeri'],
+  ] as const;
+  const existing = await db.prepare('SELECT COUNT(*) AS count FROM biology_rewards').first<{count:number}>();
+  if (Number(existing?.count ?? 0) === 0) for (const reward of rewards) await db.prepare('INSERT INTO biology_rewards (biology_level,choice_group,reward_type,reward_key,reward_value,item_vnum,item_count,label,enabled) VALUES (?,?,?,?,?,?,?,?,1)').bind(...reward).run();
 }
 
 export async function audit(actor: string, action: string, resource: string, resourceId: string | number | null, summary: string) {

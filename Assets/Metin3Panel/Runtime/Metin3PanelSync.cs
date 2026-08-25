@@ -24,6 +24,9 @@ namespace Metin3Dev.Panel
         public void Configure(Metin3PanelConnection settings)
         {
             connection = settings;
+            Metin3PlayerTelemetry telemetry = GetComponent<Metin3PlayerTelemetry>();
+            if (telemetry == null) telemetry = gameObject.AddComponent<Metin3PlayerTelemetry>();
+            telemetry.Configure(settings);
             if (refreshLoop != null) StopCoroutine(refreshLoop);
             refreshLoop = StartCoroutine(RefreshLoop());
         }

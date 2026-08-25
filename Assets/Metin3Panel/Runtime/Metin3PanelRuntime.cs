@@ -14,6 +14,33 @@ namespace Metin3Dev.Panel
         public static float MobDamageRate => Current?.settings?.Float(Current.settings.mob_damage_rate, 1f) ?? 1f;
         public static bool Maintenance => string.Equals(Current?.settings?.server_maintenance, "true", StringComparison.OrdinalIgnoreCase);
 
+        public static bool IsMuted(string account, string characterName)
+        {
+            return HasActiveSanction(account, characterName, true);
+        }
+
+        public static bool IsBanned(string account, string characterName)
+        {
+            return HasActiveSanction(account, characterName, false);
+        }
+
+        static bool HasActiveSanction(string account, string characterName, bool mute)
+        {
+            Metin3SanctionData[] sanctions = Current?.sanctions;
+            if (sanctions == null) return false;
+            DateTime now = DateTime.UtcNow;
+            foreach (Metin3SanctionData sanction in sanctions)
+            {
+                if (sanction == null) continue;
+                bool target = string.Equals(sanction.account, account, StringComparison.OrdinalIgnoreCase) || string.Equals(sanction.character_name, characterName, StringComparison.OrdinalIgnoreCase);
+                if (!target) continue;
+                string until = mute ? sanction.mute_until : sanction.ban_until;
+                if (string.IsNullOrWhiteSpace(until)) continue;
+                if (!DateTime.TryParse(until, out DateTime parsed) || parsed.ToUniversalTime() > now) return true;
+            }
+            return false;
+        }
+
         internal static void Apply(Metin3PanelPayload payload)
         {
             if (payload == null) return;

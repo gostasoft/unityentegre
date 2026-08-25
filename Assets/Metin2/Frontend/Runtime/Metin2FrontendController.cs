@@ -1393,7 +1393,7 @@ namespace Metin2Dev.Frontend
                 config.GetHairPrefab(character.characterClass, character.gender),
                 config.GetBodyTexture(character.characterClass, character.gender),
                 config.GetFaceTexture(character.characterClass, character.gender),
-                config.GetHairTexture(character.characterClass, character.gender));
+                config.GetHairTexture(character.characterClass, character.gender), saveData.accountId);
             string sceneName = config.GetScene(saveData.empire);
             if (!Application.CanStreamedLevelBeLoaded(sceneName))
             {

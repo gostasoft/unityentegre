@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getChatGPTUser } from '../../chatgpt-auth';
 import { audit, database, ensureDatabase } from '../../../lib/database';
+import { findItem } from '../../../lib/proto-catalog';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,8 @@ const resources: Record<string, Config> = {
   warp_categories: { table:'warp_categories', columns:['name','position','enabled'], booleans:['enabled'], order:'position,name' },
   warps: { table:'warp_entries', columns:['category_id','name','map_code','x','y','min_level','cost','enabled'], booleans:['enabled'], order:'category_id,name' },
   exp: { table:'exp_levels', columns:['level','required_exp'], order:'level' },
-  biology: { table:'biology_levels', columns:['level','item_vnum','item_count','success_chance','cooldown_minutes','reward','enabled'], booleans:['enabled'], order:'level' },
+  biology: { table:'biology_levels', columns:['level','quest_name','giver_name','item_vnum','item_count','soul_item_vnum','success_chance','cooldown_minutes','reward','enabled'], booleans:['enabled'], order:'level' },
+  biology_rewards: { table:'biology_rewards', columns:['biology_level','choice_group','reward_type','reward_key','reward_value','item_vnum','item_count','label','enabled'], booleans:['enabled'], order:'biology_level,id' },
   chests: { table:'chests', columns:['vnum','name','roll_count','enabled'], booleans:['enabled'], order:'vnum' },
   chest_items: { table:'chest_items', columns:['chest_vnum','item_vnum','item_name','count','chance'], order:'chest_vnum,chance DESC' },
   fishing: { table:'fishing_rates', columns:['fish_vnum','name','chance','min_length','max_length','enabled'], booleans:['enabled'], order:'chance DESC,name' },
@@ -39,8 +41,13 @@ export async function GET(request: NextRequest) {
   }
   const config = resources[resource];
   if (!config) return NextResponse.json({ error:'Geçersiz yönetim modülü.' }, { status:400 });
-  const rows = (await database().prepare(`SELECT * FROM ${config.table} ORDER BY ${config.order ?? 'id DESC'} LIMIT 1000`).all()).results;
-  return NextResponse.json({ rows });
+  const rows = (await database().prepare(`SELECT * FROM ${config.table} ORDER BY ${config.order ?? 'id DESC'} LIMIT 1000`).all<Record<string, unknown>>()).results;
+  const enriched = rows.map((row) => {
+    if (resource === 'biology') return { ...row, item_name:findItem(Number(row.item_vnum))?.name ?? 'Proto kaydında yok', soul_item_name:row.soul_item_vnum ? findItem(Number(row.soul_item_vnum))?.name ?? 'Proto kaydında yok' : 'Gerekmez' };
+    if (resource === 'biology_rewards' && row.item_vnum) return { ...row, item_name:findItem(Number(row.item_vnum))?.name ?? 'Proto kaydında yok' };
+    return row;
+  });
+  return NextResponse.json({ rows:enriched });
 }
 
 export async function POST(request: NextRequest) {
