@@ -50,6 +50,25 @@ export const spawns = sqliteTable('spawns', {
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
 }, (table) => [index('idx_spawns_map').on(table.mapId), index('idx_spawns_entity').on(table.entityId)]);
 
+export const worldPlacements = sqliteTable('world_placements', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  mapId: integer('map_id').notNull().references(() => maps.id, { onDelete: 'cascade' }),
+  targetKind: text('target_kind', { enum: ['mob', 'metin', 'group'] }).notNull(),
+  targetVnum: integer('target_vnum').notNull(),
+  x: real('x').notNull(),
+  y: real('y').notNull(),
+  z: real('z').notNull().default(0),
+  direction: real('direction').notNull().default(0),
+  radius: real('radius').notNull().default(0),
+  respawnSeconds: integer('respawn_seconds').notNull().default(60),
+  count: integer('count').notNull().default(1),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_world_placements_map').on(table.mapId),
+  index('idx_world_placements_target').on(table.targetKind, table.targetVnum),
+]);
+
 export const drops = sqliteTable('drops', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   entityId: integer('entity_id').notNull().references(() => entities.id, { onDelete: 'cascade' }),

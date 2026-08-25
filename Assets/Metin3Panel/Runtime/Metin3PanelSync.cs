@@ -33,7 +33,7 @@ namespace Metin3Dev.Panel
             while (connection != null)
             {
                 yield return Fetch();
-                yield return new WaitForSecondsRealtime(Mathf.Max(15f, connection.refreshSeconds));
+                yield return new WaitForSecondsRealtime(Mathf.Max(2f, connection.refreshSeconds));
             }
         }
 
@@ -64,7 +64,7 @@ namespace Metin3Dev.Panel
                 yield break;
             }
             Metin3PanelRuntime.Apply(payload);
-            Debug.Log($"[Metin3 Panel] Yapılandırma eşitlendi. Varlık: {payload.entities?.Length ?? 0}, yerleşim: {payload.spawns?.Length ?? 0}, sürüm: {payload.version}");
+            Debug.Log($"[Metin3 Panel] Yapılandırma eşitlendi. Varlık: {payload.runtimeEntities?.Length ?? payload.entities?.Length ?? 0}, canlı yerleşim: {payload.worldPlacements?.Length ?? 0}, sürüm: {payload.version}");
         }
     }
 }

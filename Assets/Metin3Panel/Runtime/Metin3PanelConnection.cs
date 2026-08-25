@@ -11,7 +11,8 @@ namespace Metin3Dev.Panel
         public string gameApiKey = string.Empty;
         [Tooltip("Private Sites access token. Keep it local and never commit a live token to Git.")]
         public string sitesBypassToken = string.Empty;
-        [Min(15f)] public float refreshSeconds = 60f;
+        [Tooltip("Panel changes are polled in realtime. 3 seconds is recommended for development.")]
+        [Min(2f)] public float refreshSeconds = 3f;
         public bool autoConnect = true;
         [Tooltip("Allows the localhost preview endpoint without an API key inside the Unity Editor.")]
         public bool allowLocalEditorPreview = true;
