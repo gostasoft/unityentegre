@@ -7,6 +7,7 @@ import {
   Plus, RefreshCw, Save, Search, Settings2, ShieldCheck, ShoppingCart, Skull, Store,
   Swords, Trash2, Users, X,
 } from 'lucide-react';
+import { PanelExtendedNav } from './PanelExtendedNav';
 
 type Row = Record<string, any>;
 type PanelData = {
@@ -40,8 +41,8 @@ const titles: Record<string,string> = { maps:'Harita', entities:'Mob / Metin / N
 function fmt(value: unknown) { return Number(value ?? 0).toLocaleString('tr-TR'); }
 function dateText(value: string | null) { return value ? new Date(value).toLocaleString('tr-TR',{dateStyle:'short',timeStyle:'short'}) : '—'; }
 
-export function Metin3AdminPanel({ user }: { user: { name: string; email: string } }) {
-  const [view,setView] = useState('dashboard');
+export function Metin3AdminPanel({ user, initialView='dashboard' }: { user: { name: string; email: string }; initialView?: string }) {
+  const [view,setView] = useState(initialView);
   const [data,setData] = useState<PanelData>(emptyData);
   const [loading,setLoading] = useState(true);
   const [saving,setSaving] = useState(false);
@@ -87,7 +88,7 @@ export function Metin3AdminPanel({ user }: { user: { name: string; email: string
     <aside className={`sidebar ${mobileOpen?'mobile-open':''}`}>
       <button className="sidebar-close" onClick={()=>setMobileOpen(false)} aria-label="Menüyü kapat"><X/></button>
       <div className="brand"><img src="/metin3-logo.png" alt="Metin 3"/><span>YÖNETİM PANELİ</span></div>
-      <nav className="nav-list"><p className="nav-section">PROTO KATALOĞU</p><a className="nav-item" href="/panel/mobs"><Skull size={18}/><span>Moblar</span></a><a className="nav-item" href="/panel/metins"><Gem size={18}/><span>Metinler</span></a><a className="nav-item" href="/panel/items"><PackageOpen size={18}/><span>İtemler</span></a><p className="nav-section">YÖNETİM</p>{nav.map(([id,label,Icon])=><button key={id} className={`nav-item ${view===id?'active':''}`} onClick={()=>{setView(id);setMobileOpen(false)}}><Icon size={18}/><span>{label}</span>{id==='players'&&<b>{onlinePlayers}</b>}</button>)}</nav>
+      <nav className="nav-list"><p className="nav-section">PROTO KATALOĞU</p><a className="nav-item" href="/panel/mobs"><Skull size={18}/><span>Moblar</span></a><a className="nav-item" href="/panel/metins"><Gem size={18}/><span>Metinler</span></a><a className="nav-item" href="/panel/items"><PackageOpen size={18}/><span>İtemler</span></a><p className="nav-section">YÖNETİM</p>{nav.map(([id,label,Icon])=><a href={`/panel?view=${id}`} key={id} className={`nav-item ${view===id?'active':''}`} onClick={(event)=>{event.preventDefault();setView(id);history.replaceState(null,'',`/panel?view=${id}`);setMobileOpen(false)}}><Icon size={18}/><span>{label}</span>{id==='players'&&<b>{onlinePlayers}</b>}</a>)}<PanelExtendedNav/></nav>
       <div className="server-card"><div className="server-title"><Activity size={16}/> Oyun API Bağlantısı</div><div className="server-row"><span><i/> Panel Veritabanı</span><strong>Hazır</strong></div><div className="server-row"><span><i/> Unity Eşitleme</span><strong>3 sn</strong></div><div className="server-health"><span style={{width:'96%'}}/></div><small>Son veri yenileme: şimdi</small></div>
       <div className="admin-card"><div className="avatar">{initials}</div><div><strong>{user.name}</strong><span>{user.email}</span></div><ChevronDown size={16}/></div>
     </aside>

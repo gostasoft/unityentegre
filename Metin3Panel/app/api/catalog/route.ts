@@ -26,6 +26,9 @@ export async function GET(request: NextRequest) {
   else if (kind === 'groups') source = protoCatalog.groups;
   else return NextResponse.json({ error: 'Geçersiz katalog.' }, { status: 400 });
 
+  const requestedVnum = Number(request.nextUrl.searchParams.get('vnum') ?? 0);
+  if (requestedVnum) source = source.filter((row) => row.vnum === requestedVnum);
+
   const filtered = query
     ? source.filter((row) => normalized(`${row.vnum} ${row.name} ${'folder' in row ? row.folder : ''} ${'type' in row ? row.type : ''}`).includes(query))
     : source;
@@ -33,20 +36,27 @@ export async function GET(request: NextRequest) {
   const pageRows = filtered.slice(start, start + PAGE_SIZE);
   const vnums = pageRows.map((row) => row.vnum);
   let overrides: Array<Record<string, unknown>> = [];
+  let extendedOverrides: Array<Record<string, unknown>> = [];
   if (vnums.length && kind !== 'groups') {
     const placeholders = vnums.map(() => '?').join(',');
     const table = kind === 'items' ? 'items' : 'entities';
     overrides = (await database().prepare(`SELECT * FROM ${table} WHERE vnum IN (${placeholders})`).bind(...vnums).all()).results;
+    extendedOverrides = (await database().prepare(`SELECT vnum,data FROM proto_overrides WHERE kind=? AND vnum IN (${placeholders})`).bind(kind, ...vnums).all()).results;
   }
   const overrideByVnum = new Map(overrides.map((row) => [Number(row.vnum), row]));
+  const extendedByVnum = new Map(extendedOverrides.map((row) => {
+    try { return [Number(row.vnum), JSON.parse(String(row.data)) as Record<string, unknown>]; }
+    catch { return [Number(row.vnum), {}]; }
+  }));
   const rows = pageRows.map((row) => {
     const override = overrideByVnum.get(row.vnum);
+    const extended = extendedByVnum.get(row.vnum) ?? {};
     if (kind === 'items') {
       const item = row as ProtoItem;
       return {
         ...item, category: itemCategory(item.type), buy_price: item.shopBuyPrice,
         sell_price: item.gold, stackable: item.flags.includes('ITEM_STACKABLE') ? 1 : 0,
-        ...override, proto_name: item.name, source: override ? 'Düzenlendi' : 'Proto',
+        ...extended, ...override, proto_name: item.name, source: override || Object.keys(extended).length ? 'Düzenlendi' : 'Proto',
       };
     }
     if (kind === 'groups') return { ...row, memberCount: 'members' in row ? row.members.length : 0, source: 'group.txt' };
@@ -54,7 +64,7 @@ export async function GET(request: NextRequest) {
     return {
       ...mob, min_damage: mob.minDamage, max_damage: mob.maxDamage,
       attack_speed: mob.attackSpeed, move_speed: mob.moveSpeed,
-      ...override, proto_name: mob.name, source: override ? 'Düzenlendi' : 'Proto',
+      ...extended, ...override, proto_name: mob.name, source: override || Object.keys(extended).length ? 'Düzenlendi' : 'Proto',
     };
   });
   return NextResponse.json({
@@ -86,6 +96,10 @@ export async function POST(request: NextRequest) {
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(vnum) DO UPDATE SET name=excluded.name,type=excluded.type,rank=excluded.rank,level=excluded.level,hp=excluded.hp,exp=excluded.exp,min_damage=excluded.min_damage,max_damage=excluded.max_damage,defense=excluded.defense,attack_speed=excluded.attack_speed,move_speed=excluded.move_speed,enabled=excluded.enabled,updated_at=excluded.updated_at`)
       .bind(vnum, String(data.name ?? ''), type, String(data.rank ?? 'PAWN'), Number(data.level ?? 1), Number(data.hp ?? 1), Number(data.exp ?? 0), Number(data.min_damage ?? 0), Number(data.max_damage ?? 0), Number(data.defense ?? 0), Number(data.attack_speed ?? 100), Number(data.move_speed ?? 100), data.enabled === false ? 0 : 1, now).run();
   } else return NextResponse.json({ error: 'Geçersiz katalog türü.' }, { status: 400 });
+  const extended = Object.fromEntries(Object.entries(data).filter(([key]) => !['id','source','proto_name','updated_at'].includes(key)));
+  await db.prepare(`INSERT INTO proto_overrides (kind,vnum,data,updated_at) VALUES (?,?,?,?)
+    ON CONFLICT(kind,vnum) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at`)
+    .bind(kind, vnum, JSON.stringify(extended), now).run();
   await audit(user.email, 'proto_update', kind, vnum, `#${vnum} ${String(data.name ?? '')} güncellendi`);
   return NextResponse.json({ ok: true });
 }

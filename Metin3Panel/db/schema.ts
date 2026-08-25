@@ -69,6 +69,14 @@ export const worldPlacements = sqliteTable('world_placements', {
   index('idx_world_placements_target').on(table.targetKind, table.targetVnum),
 ]);
 
+export const protoOverrides = sqliteTable('proto_overrides', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  kind: text('kind').notNull(),
+  vnum: integer('vnum').notNull(),
+  data: text('data').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [uniqueIndex('idx_proto_overrides_kind_vnum').on(table.kind, table.vnum)]);
+
 export const drops = sqliteTable('drops', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   entityId: integer('entity_id').notNull().references(() => entities.id, { onDelete: 'cascade' }),
@@ -136,3 +144,42 @@ export const auditLogs = sqliteTable('audit_logs', {
   summary: text('summary').notNull(),
   createdAt: text('created_at').notNull(),
 }, (table) => [index('idx_audit_created').on(table.createdAt)]);
+
+export const accounts = sqliteTable('accounts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  login: text('login').notNull(), email: text('email').notNull().default(''),
+  status: text('status').notNull().default('OK'), empire: text('empire').notNull().default(''),
+  createdAt: text('created_at').notNull(), lastLogin: text('last_login'),
+}, (table) => [uniqueIndex('idx_accounts_login').on(table.login)]);
+
+export const accountCharacters = sqliteTable('account_characters', {
+  id: integer('id').primaryKey({ autoIncrement: true }), accountId: integer('account_id').notNull(),
+  name: text('name').notNull(), job: text('job').notNull().default('Savaşçı'), level: integer('level').notNull().default(1),
+  empire: text('empire').notNull().default('Shinsoo'), mapCode: text('map_code').notNull().default('metin2_map_a1'),
+  x: real('x').notNull().default(0), y: real('y').notNull().default(0), playtime: integer('playtime').notNull().default(0),
+  online: integer('online', { mode: 'boolean' }).notNull().default(false), lastPlay: text('last_play'),
+}, (table) => [uniqueIndex('idx_account_characters_name').on(table.name), index('idx_account_characters_account').on(table.accountId)]);
+
+export const gmAccounts = sqliteTable('gm_accounts', {
+  id: integer('id').primaryKey({ autoIncrement: true }), login: text('login').notNull(), characterName: text('character_name').notNull().default(''),
+  authority: text('authority').notNull().default('IMPLEMENTOR'), contactIp: text('contact_ip').notNull().default('ALL'), enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+}, (table) => [uniqueIndex('idx_gm_accounts_login').on(table.login)]);
+
+export const bans = sqliteTable('bans', {
+  id: integer('id').primaryKey({ autoIncrement: true }), targetType: text('target_type').notNull().default('account'), target: text('target').notNull(),
+  reason: text('reason').notNull().default(''), expiresAt: text('expires_at'), active: integer('active', { mode: 'boolean' }).notNull().default(true), createdAt: text('created_at').notNull(),
+}, (table) => [index('idx_bans_target').on(table.targetType, table.target)]);
+
+export const warpCategories = sqliteTable('warp_categories', { id: integer('id').primaryKey({ autoIncrement: true }), name: text('name').notNull(), position: integer('position').notNull().default(0), enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true) });
+export const warpEntries = sqliteTable('warp_entries', { id: integer('id').primaryKey({ autoIncrement: true }), categoryId: integer('category_id').notNull(), name: text('name').notNull(), mapCode: text('map_code').notNull(), x: real('x').notNull().default(0), y: real('y').notNull().default(0), minLevel: integer('min_level').notNull().default(1), cost: integer('cost').notNull().default(0), enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true) });
+export const expLevels = sqliteTable('exp_levels', { id: integer('id').primaryKey({ autoIncrement: true }), level: integer('level').notNull(), requiredExp: integer('required_exp').notNull().default(0) }, (table) => [uniqueIndex('idx_exp_levels_level').on(table.level)]);
+export const biologyLevels = sqliteTable('biology_levels', { id: integer('id').primaryKey({ autoIncrement: true }), level: integer('level').notNull(), itemVnum: integer('item_vnum').notNull(), itemCount: integer('item_count').notNull().default(1), successChance: real('success_chance').notNull().default(100), cooldownMinutes: integer('cooldown_minutes').notNull().default(1440), reward: text('reward').notNull().default(''), enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true) }, (table) => [uniqueIndex('idx_biology_levels_level').on(table.level)]);
+export const chests = sqliteTable('chests', { id: integer('id').primaryKey({ autoIncrement: true }), vnum: integer('vnum').notNull(), name: text('name').notNull(), rollCount: integer('roll_count').notNull().default(1), enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true) }, (table) => [uniqueIndex('idx_chests_vnum').on(table.vnum)]);
+export const chestItems = sqliteTable('chest_items', { id: integer('id').primaryKey({ autoIncrement: true }), chestVnum: integer('chest_vnum').notNull(), itemVnum: integer('item_vnum').notNull(), itemName: text('item_name').notNull().default(''), count: integer('count').notNull().default(1), chance: real('chance').notNull().default(100) });
+export const fishingRates = sqliteTable('fishing_rates', { id: integer('id').primaryKey({ autoIncrement: true }), fishVnum: integer('fish_vnum').notNull(), name: text('name').notNull(), chance: real('chance').notNull().default(1), minLength: real('min_length').notNull().default(0), maxLength: real('max_length').notNull().default(0), enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true) });
+export const fishingEventItems = sqliteTable('fishing_event_items', { id: integer('id').primaryKey({ autoIncrement: true }), itemVnum: integer('item_vnum').notNull(), itemName: text('item_name').notNull().default(''), chance: real('chance').notNull().default(1), startAt: text('start_at'), endAt: text('end_at'), enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true) });
+export const markets = sqliteTable('markets', { id: integer('id').primaryKey({ autoIncrement: true }), owner: text('owner').notNull(), shopName: text('shop_name').notNull(), mapCode: text('map_code').notNull().default(''), x: real('x').notNull().default(0), y: real('y').notNull().default(0), createdAt: text('created_at').notNull(), expiresAt: text('expires_at'), active: integer('active', { mode: 'boolean' }).notNull().default(true) });
+export const marketItems = sqliteTable('market_items', { id: integer('id').primaryKey({ autoIncrement: true }), marketId: integer('market_id').notNull(), itemVnum: integer('item_vnum').notNull(), itemName: text('item_name').notNull().default(''), count: integer('count').notNull().default(1), price: integer('price').notNull().default(0), sold: integer('sold', { mode: 'boolean' }).notNull().default(false) });
+export const tradeLogs = sqliteTable('trade_logs', { id: integer('id').primaryKey({ autoIncrement: true }), giver: text('giver').notNull(), receiver: text('receiver').notNull(), yang: integer('yang').notNull().default(0), createdAt: text('created_at').notNull(), ipAddress: text('ip_address').notNull().default('') });
+export const tradeItems = sqliteTable('trade_items', { id: integer('id').primaryKey({ autoIncrement: true }), tradeId: integer('trade_id').notNull(), direction: text('direction').notNull().default('giver'), itemVnum: integer('item_vnum').notNull(), itemName: text('item_name').notNull().default(''), count: integer('count').notNull().default(1) });
+export const serverChannels = sqliteTable('server_channels', { id: integer('id').primaryKey({ autoIncrement: true }), name: text('name').notNull(), host: text('host').notNull().default('127.0.0.1'), port: integer('port').notNull().default(0), status: text('status').notNull().default('offline'), players: integer('players').notNull().default(0), updatedAt: text('updated_at').notNull() }, (table) => [uniqueIndex('idx_server_channels_name').on(table.name)]);

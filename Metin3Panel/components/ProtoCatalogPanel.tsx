@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Boxes, ChevronLeft, ChevronRight, CircleGauge, Edit3, Gem, LayoutDashboard, LoaderCircle, MapPin, PackageOpen, RefreshCw, Save, Search, Skull, Trash2, UsersRound, X } from 'lucide-react';
+import { Boxes, ChevronLeft, ChevronRight, CircleGauge, Edit3, Gem, LayoutDashboard, LoaderCircle, MapPin, PackageOpen, RefreshCw, Search, Skull, Trash2, UsersRound, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { PanelExtendedNav } from './PanelExtendedNav';
 
 type Kind = 'mobs' | 'metins' | 'items';
 type Row = Record<string, any>;
@@ -14,13 +16,13 @@ const copy = {
 };
 
 export function ProtoCatalogPanel({ kind, user }: { kind: Kind; user: { name: string; email: string } }) {
+  const router = useRouter();
   const [mode, setMode] = useState<'catalog' | 'groups'>(kind === 'mobs' ? 'catalog' : 'catalog');
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<CatalogResponse>({ rows: [], page: 1, pages: 1, total: 0, generatedAt: '' });
   const [loading, setLoading] = useState(true);
-  const [editor, setEditor] = useState<Row | null>(null);
   const [placement, setPlacement] = useState<Row | null>(null);
   const [maps, setMaps] = useState<Row[]>([]);
   const [placements, setPlacements] = useState<Row[]>([]);
@@ -47,12 +49,6 @@ export function ProtoCatalogPanel({ kind, user }: { kind: Kind; user: { name: st
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadPlacements(); }, [loadPlacements]);
 
-  async function saveCatalog(row: Row) {
-    const response = await fetch('/api/catalog', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, data: row }) });
-    const result = await response.json();
-    if (!response.ok) return setToast(result.error ?? 'Kayıt başarısız.');
-    setEditor(null); setToast('Proto değişikliği kaydedildi; oyuna eşitleme kuyruğunda.'); await load();
-  }
   async function savePlacement(row: Row) {
     const response = await fetch('/api/placements', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'upsert', data: row }) });
     const result = await response.json();
@@ -66,6 +62,9 @@ export function ProtoCatalogPanel({ kind, user }: { kind: Kind; user: { name: st
   }
   function place(row: Row) {
     setPlacement({ map_id: maps[0]?.id, target_kind: mode === 'groups' ? 'group' : kind === 'metins' ? 'metin' : 'mob', target_vnum: row.vnum, target_name: row.name, x: 512, y: 512, z: 0, direction: 0, radius: 0, respawn_seconds: 60, count: 1, enabled: true });
+  }
+  function openDetail(row: Row) {
+    router.push(`/panel/${mode === 'groups' ? 'groups' : kind}/${row.vnum}`);
   }
   const columns = useMemo(() => mode === 'groups'
     ? [['vnum','Grup VNUM'],['name','Grup'],['leaderVnum','Lider'],['memberCount','Üye']]
@@ -81,6 +80,7 @@ export function ProtoCatalogPanel({ kind, user }: { kind: Kind; user: { name: st
         <a className={`nav-item ${kind==='mobs'?'active':''}`} href="/panel/mobs"><Skull size={18}/><span>Moblar</span></a>
         <a className={`nav-item ${kind==='metins'?'active':''}`} href="/panel/metins"><Gem size={18}/><span>Metinler</span></a>
         <a className={`nav-item ${kind==='items'?'active':''}`} href="/panel/items"><PackageOpen size={18}/><span>İtemler</span></a>
+        <PanelExtendedNav/>
       </nav>
       <div className="server-card"><div className="server-title"><CircleGauge size={16}/> Proto Doğrulaması</div><div className="server-row"><span><i/> mob_proto / names</span><strong>1.916</strong></div><div className="server-row"><span><i/> item_proto / names</span><strong>10.912</strong></div><div className="server-row"><span><i/> group.txt</span><strong>923</strong></div><small>Türkçe kodlama: ISO-8859-9 doğrulandı</small></div>
       <div className="admin-card"><div className="avatar">{initials}</div><div><strong>{user.name}</strong><span>{user.email}</span></div></div>
@@ -92,21 +92,14 @@ export function ProtoCatalogPanel({ kind, user }: { kind: Kind; user: { name: st
         {kind==='mobs'&&<div className="catalog-tabs"><button className={mode==='catalog'?'active':''} onClick={()=>{setMode('catalog');setPage(1)}}><Skull/> Mob Kataloğu</button><button className={mode==='groups'?'active':''} onClick={()=>{setMode('groups');setPage(1)}}><UsersRound/> Mob Grupları</button></div>}
         <section className="catalog-summary"><div><ui.icon/><span><small>DOĞRULANAN KAYIT</small><b>{data.total.toLocaleString('tr-TR')}</b></span></div><div><MapPin/><span><small>CANLI YERLEŞİM</small><b>{placements.filter((row)=>mode==='groups'?row.target_kind==='group':row.target_kind===(kind==='metins'?'metin':'mob')).length}</b></span></div><div><Boxes/><span><small>PROTO TARİHİ</small><b>{data.generatedAt?new Date(data.generatedAt).toLocaleDateString('tr-TR'):'—'}</b></span></div></section>
         <article className="panel data-table catalog-table"><div className="panel-head"><div><span className="panel-kicker">PROTO KATALOĞU</span><h2>{data.total.toLocaleString('tr-TR')} kayıt</h2></div><div className="pagination"><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft/></button><span>{page} / {data.pages}</span><button disabled={page>=data.pages} onClick={()=>setPage(page+1)}><ChevronRight/></button></div></div>
-          <div className="table-scroll"><table><thead><tr>{columns.map(([key,label])=><th key={key}>{label}</th>)}<th>İşlem</th></tr></thead><tbody>{data.rows.map((row)=><tr key={row.vnum}>{columns.map(([key])=><td key={key}>{typeof row[key]==='number'?Number(row[key]).toLocaleString('tr-TR'):String(row[key]??'—')}</td>)}<td className="row-actions">{mode!=='groups'&&<button title="Düzenle" onClick={()=>setEditor({...row,enabled:row.enabled!==0})}><Edit3/></button>}{kind!=='items'&&<button title="Haritaya yerleştir" onClick={()=>place(row)}><MapPin/></button>}</td></tr>)}</tbody></table>{loading&&<div className="table-loading"><LoaderCircle className="spin"/> Veriler doğrulanıyor</div>}</div>
+          <div className="table-scroll"><table><thead><tr>{columns.map(([key,label])=><th key={key}>{label}</th>)}<th>İşlem</th></tr></thead><tbody>{data.rows.map((row)=><tr className="catalog-row" key={row.vnum} tabIndex={0} onClick={()=>openDetail(row)} onKeyDown={(event)=>{if(event.key==='Enter')openDetail(row)}}>{columns.map(([key])=><td key={key}>{typeof row[key]==='number'?Number(row[key]).toLocaleString('tr-TR'):String(row[key]??'—')}</td>)}<td className="row-actions"><button title="Detay sayfasını aç" onClick={(event)=>{event.stopPropagation();openDetail(row)}}><ChevronRight/></button>{kind!=='items'&&<button title="Haritaya yerleştir" onClick={(event)=>{event.stopPropagation();place(row)}}><MapPin/></button>}</td></tr>)}</tbody></table>{loading&&<div className="table-loading"><LoaderCircle className="spin"/> Veriler doğrulanıyor</div>}</div>
         </article>
         {kind!=='items'&&<article className="panel data-table"><div className="panel-head"><div><span className="panel-kicker">CANLI DÜNYA</span><h2>Son yerleşimler</h2></div></div><div className="table-scroll"><table><thead><tr><th>Hedef</th><th>Tür</th><th>Harita</th><th>X</th><th>Y</th><th>Adet</th><th>İşlem</th></tr></thead><tbody>{placements.slice(0,12).map((row)=><tr key={row.id}><td>#{row.target_vnum} {row.target_name}</td><td>{row.target_kind}</td><td>{row.map_name}</td><td>{row.x}</td><td>{row.y}</td><td>{row.count}</td><td className="row-actions"><button onClick={()=>setPlacement(row)}><Edit3/></button><button onClick={()=>void removePlacement(row.id)}><Trash2/></button></td></tr>)}</tbody></table></div></article>}
       </div>
     </main>
-    {editor&&<CatalogEditor kind={kind} row={editor} close={()=>setEditor(null)} save={saveCatalog}/>}
     {placement&&<PlacementEditor row={placement} maps={maps} close={()=>setPlacement(null)} save={savePlacement}/>}
     {toast&&<div className="toast">{toast}</div>}
   </div>;
-}
-
-function CatalogEditor({kind,row,close,save}:{kind:Kind;row:Row;close:()=>void;save:(row:Row)=>void}) {
-  const [form,setForm]=useState<Row>(row);
-  const fields = kind==='items' ? [['name','İtem adı','text'],['category','Kategori','text'],['buy_price','Alış fiyatı','number'],['sell_price','Satış fiyatı','number']] : [['name','Ad','text'],['rank','Rütbe','text'],['level','Seviye','number'],['hp','HP','number'],['exp','EXP','number'],['min_damage','Min. hasar','number'],['max_damage','Maks. hasar','number'],['defense','Savunma','number'],['attack_speed','Saldırı hızı','number'],['move_speed','Hareket hızı','number']];
-  return <div className="modal-backdrop"><form className="editor-modal" onSubmit={(event)=>{event.preventDefault();save(form)}}><header><div><span>PROTO KAYDI</span><h2>#{form.vnum} {form.proto_name}</h2></div><button type="button" onClick={close}><X/></button></header><div className="form-grid">{fields.map(([key,label,type])=><label key={key}><span>{label}</span><input required type={type} step={type==='number'?'any':undefined} value={form[key]??''} onChange={(event)=>setForm({...form,[key]:type==='number'?Number(event.target.value):event.target.value})}/></label>)}<label><span>Aktif</span><input type="checkbox" checked={form.enabled!==false&&form.enabled!==0} onChange={(event)=>setForm({...form,enabled:event.target.checked})}/></label></div><footer><button type="button" className="secondary" onClick={close}>Vazgeç</button><button className="primary"><Save/> Kaydet ve Oyuna Yayınla</button></footer></form></div>;
 }
 
 function PlacementEditor({row,maps,close,save}:{row:Row;maps:Row[];close:()=>void;save:(row:Row)=>void}) {
