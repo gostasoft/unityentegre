@@ -38,6 +38,28 @@ namespace Metin2Dev.Frontend.Editor
             Root + "/Resources/Metin2Frontend/Portraits/face_shaman.png",
         };
 
+        [InitializeOnLoadMethod]
+        static void InstallPlayModeEntryScene()
+        {
+            EditorApplication.playModeStateChanged -= HandlePlayModeStateChanged;
+            EditorApplication.playModeStateChanged += HandlePlayModeStateChanged;
+            EditorApplication.delayCall += ConfigurePlayModeEntryScene;
+        }
+
+        static void HandlePlayModeStateChanged(PlayModeStateChange state)
+        {
+            if (state == PlayModeStateChange.EnteredEditMode)
+                EditorApplication.delayCall += ConfigurePlayModeEntryScene;
+        }
+
+        static void ConfigurePlayModeEntryScene()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+            SceneAsset loginScene = AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath);
+            if (loginScene != null && EditorSceneManager.playModeStartScene != loginScene)
+                EditorSceneManager.playModeStartScene = loginScene;
+        }
+
         [MenuItem("Tools/Metin2/Open Login Flow", priority = 20)]
         public static void Open()
         {
