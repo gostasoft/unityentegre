@@ -1189,10 +1189,21 @@ namespace Metin2Dev.Frontend
             }
             RectTransform footer = FindRect(root, "Loading Footer");
             List<Text> texts = footer != null ? DirectComponents<Text>(footer) : new List<Text>();
-            Text status = texts.ElementAtOrDefault(1);
+            Text status = FindNamed<Text>(root, "Loading Status") ?? texts.ElementAtOrDefault(1);
+            if (status == null)
+            {
+                status = root.GetComponentsInChildren<Text>(true).FirstOrDefault(text =>
+                    text.text.Contains("Hazırlan", StringComparison.OrdinalIgnoreCase) ||
+                    text.text.Contains("Yüklen", StringComparison.OrdinalIgnoreCase));
+            }
+            if (status == null && footer != null)
+            {
+                status = CreateText(footer, "Hazırlanıyor...", 13, FontStyle.Normal, TextAnchor.MiddleRight,
+                    new Vector2(450f, -12f), new Vector2(326f, 30f), new Color(0.84f, 0.82f, 0.77f));
+                status.name = "Loading Status";
+            }
             RectTransform fill = FindRect(root, "Gauge Fill");
-            if (status != null && fill != null)
-                loadingRoutine = StartCoroutine(LoadGame(character, status, fill, footer));
+            loadingRoutine = StartCoroutine(LoadGame(character, status, fill, footer ?? root));
         }
 
         void ConfigureEditablePreview(RectTransform previewRect, Metin2CharacterData character)
@@ -1388,6 +1399,13 @@ namespace Metin2Dev.Frontend
 
         IEnumerator LoadGame(Metin2CharacterData character, Text status, RectTransform fill, RectTransform footer)
         {
+            if (character == null || saveData == null)
+            {
+                SetLoadingStatus(status, "Karakter bilgisi bulunamadı.");
+                loadingRoutine = null;
+                yield break;
+            }
+
             Metin2Dev.Gameplay.Metin2GameplaySession.Select(character, saveData.empire,
                 config.GetRacePrefab(character.characterClass, character.gender),
                 config.GetHairPrefab(character.characterClass, character.gender),
@@ -1421,33 +1439,43 @@ namespace Metin2Dev.Frontend
                 {
                     displayed = Mathf.MoveTowards(displayed, 1f, Time.unscaledDeltaTime * 0.36f);
                     SetProgress(fill, displayed);
-                    status.text = "Harita sahnesi bekleniyor: " + sceneName;
+                    SetLoadingStatus(status, "Harita sahnesi bekleniyor: " + sceneName);
                     yield return null;
                 }
-                status.text = "Harita Build Settings içinde bulunamadı.";
-                Text backLabel;
-                Button back = CreateButton(footer, "Karakter Seçimine Dön", new Vector2(288f, -74f), new Vector2(224f, 28f), out backLabel, true);
-                back.onClick.AddListener(ShowCharacterSelection);
+                SetLoadingStatus(status, "Harita Build Settings içinde bulunamadı.");
+                if (footer != null)
+                {
+                    Text backLabel;
+                    Button back = CreateButton(footer, "Karakter Seçimine Dön", new Vector2(288f, -74f), new Vector2(224f, 28f), out backLabel, true);
+                    back.onClick.AddListener(ShowCharacterSelection);
+                }
                 loadingRoutine = null;
                 yield break;
             }
 
-            status.text = sceneName + " hazırlanıyor...";
+            SetLoadingStatus(status, sceneName + " hazırlanıyor...");
+            Debug.Log("[Metin2 Frontend] Loading gameplay scene: " + sceneName, this);
             AsyncOperation operation = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Single);
+            if (operation == null)
+            {
+                SetLoadingStatus(status, "Harita yükleme işlemi başlatılamadı.");
+                loadingRoutine = null;
+                yield break;
+            }
             operation.allowSceneActivation = false;
             while (operation.progress < 0.9f)
             {
                 float target = 0.16f + Mathf.Clamp01(operation.progress / 0.9f) * 0.78f;
                 displayed = Mathf.MoveTowards(displayed, target, Time.unscaledDeltaTime * 0.55f);
                 SetProgress(fill, displayed);
-                status.text = "%" + Mathf.RoundToInt(displayed * 100f);
+                SetLoadingStatus(status, "%" + Mathf.RoundToInt(displayed * 100f));
                 yield return null;
             }
             while (displayed < 1f)
             {
                 displayed = Mathf.MoveTowards(displayed, 1f, Time.unscaledDeltaTime * 0.55f);
                 SetProgress(fill, displayed);
-                status.text = "%" + Mathf.RoundToInt(displayed * 100f);
+                SetLoadingStatus(status, "%" + Mathf.RoundToInt(displayed * 100f));
                 yield return null;
             }
             character.playMinutes += 1;
@@ -1455,12 +1483,19 @@ namespace Metin2Dev.Frontend
             yield return new WaitForSecondsRealtime(0.25f);
             operation.allowSceneActivation = true;
             yield return operation;
+            Time.timeScale = 1f;
             Destroy(gameObject);
         }
 
         static void SetProgress(RectTransform fill, float value)
         {
+            if (fill == null) return;
             fill.anchorMax = new Vector2(Mathf.Clamp01(value), 1f);
+        }
+
+        static void SetLoadingStatus(Text status, string value)
+        {
+            if (status != null) status.text = value;
         }
 
         void CreateInfoRow(RectTransform panel, string label, string value, float y)
