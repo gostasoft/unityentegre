@@ -24,6 +24,7 @@ namespace Metin2Dev.Gameplay
         Canvas canvas;
         Font font;
         RectTransform hud;
+        RectTransform desktopMapOverlay;
         RectTransform inventoryWindow;
         RectTransform characterWindow;
         RectTransform[] characterPages;
@@ -36,6 +37,7 @@ namespace Metin2Dev.Gameplay
         Text spText;
         Text characterNameText;
         Text characterLevelText;
+        Text desktopCoordinateText;
         Metin2PlayerController player;
         bool gameplayVisible;
         float currentHp;
@@ -93,6 +95,7 @@ namespace Metin2Dev.Gameplay
             CreateEventSystem();
             CreateCanvas();
             BuildHud();
+            BuildDesktopMapOverlay();
             BuildInventory();
             BuildCharacterWindow();
             SceneManager.sceneLoaded += OnSceneLoaded;
@@ -130,6 +133,7 @@ namespace Metin2Dev.Gameplay
             if (!gameplayVisible) return;
             ApplyHudLayoutMode();
             if (player == null) player = FindFirstObjectByType<Metin2PlayerController>();
+            UpdateDesktopCoordinates();
 
             Keyboard keyboard = Keyboard.current;
             if (keyboard != null)
@@ -153,6 +157,8 @@ namespace Metin2Dev.Gameplay
             if (hud == null) return;
             bool showDesktopTaskbar = gameplayVisible && !Metin2MobileGameplayUI.IsMobileLayoutActive;
             if (hud.gameObject.activeSelf != showDesktopTaskbar) hud.gameObject.SetActive(showDesktopTaskbar);
+            if (desktopMapOverlay != null && desktopMapOverlay.gameObject.activeSelf != showDesktopTaskbar)
+                desktopMapOverlay.gameObject.SetActive(showDesktopTaskbar);
         }
 
         void LoadTextures()
@@ -165,7 +171,7 @@ namespace Metin2Dev.Gameplay
                 "board_line_top", "board_line_bottom", "board_line_left", "board_line_right",
                 "titlebar_left", "titlebar_center", "titlebar_right", "gauge_red", "gauge_blue", "gauge_pink",
                 "gauge_purple", "horizontalbar_left", "horizontalbar_center", "horizontalbar_right",
-                "hp_gauge_01", "sp_gauge_01", "st_gauge_01"
+                "hp_gauge_01", "sp_gauge_01", "st_gauge_01", "minimap"
             };
             foreach (string name in names)
             {
@@ -239,6 +245,55 @@ namespace Metin2Dev.Gameplay
             BuildTaskBarControls();
             BuildTaskButtons();
             BuildCameraViewButton();
+        }
+
+        void BuildDesktopMapOverlay()
+        {
+            desktopMapOverlay = CreateRect(canvas.transform, "Desktop Map and Coordinates", Vector2.one, Vector2.one,
+                Vector2.one, new Vector2(-18f, -18f), new Vector2(148f, 180f));
+            desktopMapOverlay.gameObject.SetActive(false);
+
+            RectTransform mapRoot = CreateRect(desktopMapOverlay, "MobileMinimap", Vector2.up, Vector2.up,
+                Vector2.up, Vector2.zero, new Vector2(148f, 180f));
+            Image background = CreateImage(mapRoot, "MapBackground", new Vector2(6f, -6f), new Vector2(124f, 124f),
+                new Color(0.015f, 0.02f, 0.015f, 1f));
+            background.raycastTarget = false;
+
+            RawImage mapView = CreateRaw(mapRoot, "MapView", null, new Vector2(10f, -10f), new Vector2(116f, 116f),
+                Vector2.up, Vector2.up, Vector2.up);
+
+            Image markerImage = CreateImage(mapRoot, "PlayerMarker", new Vector2(62f, -61f), new Vector2(12f, 12f),
+                new Color(1f, 0.82f, 0.16f, 1f));
+            RectTransform marker = markerImage.rectTransform;
+            marker.pivot = new Vector2(0.5f, 0.5f);
+            marker.localRotation = Quaternion.Euler(0f, 0f, 45f);
+
+            Texture2D minimapFrame = Texture("minimap");
+            RawImage frame = CreateRaw(mapRoot, "OriginalMinimapFrame", minimapFrame, Vector2.zero,
+                new Vector2(136f, 137f), Vector2.up, Vector2.up, Vector2.up);
+            frame.uvRect = AtlasUv(minimapFrame, new Rect(0f, 0f, 136f, 137f));
+
+            Text mapName = CreateText(mapRoot, "HARİTA", 10, TextAnchor.MiddleCenter,
+                new Vector2(0f, -138f), new Vector2(136f, 18f), Color.white, true);
+            mapName.name = "MapName";
+            desktopCoordinateText = CreateText(mapRoot, "X: 0.0   Y: 0.0", 10, TextAnchor.MiddleCenter,
+                new Vector2(0f, -158f), new Vector2(136f, 18f), new Color(0.96f, 0.82f, 0.51f), true);
+            desktopCoordinateText.name = "CoordinateText";
+
+            RectTransform statusPlaceholder = CreateRect(desktopMapOverlay, "Desktop Status Placeholder",
+                Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            statusPlaceholder.gameObject.SetActive(false);
+
+            MobileHUDStatusAndMinimap minimapController = desktopMapOverlay.gameObject.AddComponent<MobileHUDStatusAndMinimap>();
+            minimapController.Configure(statusPlaceholder, null, null, null, null, null,
+                mapRoot, mapView, marker, mapName);
+        }
+
+        void UpdateDesktopCoordinates()
+        {
+            if (desktopCoordinateText == null || player == null) return;
+            Vector3 position = player.transform.position;
+            desktopCoordinateText.text = "X: " + position.x.ToString("F1") + "   Y: " + position.z.ToString("F1");
         }
 
         void BuildQuickSlots()
