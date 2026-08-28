@@ -250,11 +250,11 @@ namespace Metin2Dev.Gameplay
         void BuildDesktopMapOverlay()
         {
             desktopMapOverlay = CreateRect(canvas.transform, "Desktop Map and Coordinates", Vector2.one, Vector2.one,
-                Vector2.one, new Vector2(-18f, -18f), new Vector2(148f, 180f));
+                Vector2.one, new Vector2(-18f, -18f), new Vector2(148f, 196f));
             desktopMapOverlay.gameObject.SetActive(false);
 
             RectTransform mapRoot = CreateRect(desktopMapOverlay, "MobileMinimap", Vector2.up, Vector2.up,
-                Vector2.up, Vector2.zero, new Vector2(148f, 180f));
+                Vector2.up, Vector2.zero, new Vector2(148f, 196f));
             Image background = CreateImage(mapRoot, "MapBackground", new Vector2(6f, -6f), new Vector2(124f, 124f),
                 new Color(0.015f, 0.02f, 0.015f, 1f));
             background.raycastTarget = false;
@@ -276,8 +276,8 @@ namespace Metin2Dev.Gameplay
             Text mapName = CreateText(mapRoot, "HARİTA", 10, TextAnchor.MiddleCenter,
                 new Vector2(0f, -138f), new Vector2(136f, 18f), Color.white, true);
             mapName.name = "MapName";
-            desktopCoordinateText = CreateText(mapRoot, "X: 0.0   Y: 0.0", 10, TextAnchor.MiddleCenter,
-                new Vector2(0f, -158f), new Vector2(136f, 18f), new Color(0.96f, 0.82f, 0.51f), true);
+            desktopCoordinateText = CreateText(mapRoot, "X: 0.0   Y: 0.0\nZ: 0.0", 10, TextAnchor.MiddleCenter,
+                new Vector2(0f, -166f), new Vector2(136f, 34f), new Color(0.96f, 0.82f, 0.51f), true);
             desktopCoordinateText.name = "CoordinateText";
 
             RectTransform statusPlaceholder = CreateRect(desktopMapOverlay, "Desktop Status Placeholder",
@@ -293,7 +293,9 @@ namespace Metin2Dev.Gameplay
         {
             if (desktopCoordinateText == null || player == null) return;
             Vector3 position = player.transform.position;
-            desktopCoordinateText.text = "X: " + position.x.ToString("F1") + "   Y: " + position.z.ToString("F1");
+            // Panel coordinates use X/Y for the map plane and Z for elevation.
+            desktopCoordinateText.text = "X: " + position.x.ToString("F1") + "   Y: " + position.z.ToString("F1")
+                + "\nZ: " + position.y.ToString("F1");
         }
 
         void BuildQuickSlots()
