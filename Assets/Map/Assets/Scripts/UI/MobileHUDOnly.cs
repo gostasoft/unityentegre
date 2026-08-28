@@ -177,7 +177,7 @@ public sealed class MobileHUDOnly : MonoBehaviour
 
     private static void EnsureAuthoredHudForActiveGameplayScene()
     {
-        if (!Application.isPlaying || IsAnyActive)
+        if (!Application.isPlaying || !ShouldCreateRuntimeMobileHud() || IsAnyActive)
             return;
 
         Scene scene = SceneManager.GetActiveScene();
@@ -212,6 +212,17 @@ public sealed class MobileHUDOnly : MonoBehaviour
         if (controller == null)
             controller = hud.AddComponent<MobileHUDOnly>();
         controller.ApplyPlatformVisibilityAndConfigure();
+    }
+
+    private static bool ShouldCreateRuntimeMobileHud()
+    {
+#if UNITY_EDITOR
+        return false;
+#elif UNITY_ANDROID || UNITY_IOS
+        return true;
+#else
+        return false;
+#endif
     }
 
     private static bool IsGameplayScene(Scene scene)
@@ -254,8 +265,11 @@ public sealed class MobileHUDOnly : MonoBehaviour
 
     private bool ShouldShowHud()
     {
+        if (Application.isPlaying && !IsGameplayScene(SceneManager.GetActiveScene()))
+            return false;
 #if UNITY_EDITOR
-        return showInEditorPlayMode;
+        // Keep the hierarchy editable outside Play mode, but use the desktop HUD while testing on PC.
+        return !Application.isPlaying && showInEditorPlayMode;
 #elif UNITY_ANDROID || UNITY_IOS
         return true;
 #else

@@ -43,7 +43,8 @@ namespace Metin2Dev.Gameplay
             get
             {
 #if UNITY_EDITOR
-                return Application.isPlaying ? Application.isMobilePlatform || previewMobileLayoutInEditor : previewMobileLayoutInEditor;
+                // Editor Play is the desktop control path. The preview remains available while authoring.
+                return !Application.isPlaying && previewMobileLayoutInEditor;
 #else
                 return Application.isMobilePlatform;
 #endif
