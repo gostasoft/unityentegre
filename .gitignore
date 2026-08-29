@@ -45,3 +45,7 @@ sysinfo.txt
 /Assets/Metin2/Gameplay/Generated/
 /Assets/Metin2/Gameplay/Generated.meta
 /Metin2,5/PlayerConverted/
+
+# Rebuilt locally from the converted original Monster/NPC packs
+/Assets/Metin2/EntitiesGenerated/
+/Assets/Metin2/EntitiesGenerated.meta

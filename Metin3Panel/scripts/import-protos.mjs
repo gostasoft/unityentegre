@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const sourceRoot = process.argv[2] ?? 'C:/Users/Salih Gökmen/Desktop/Seyir2 Bilgiler/Proto';
 const groupPath = process.argv[3] ?? 'C:/Users/Salih Gökmen/Desktop/Seyir2 Bilgiler/Group Güncel/group.txt';
 const itemDescriptionPath = process.argv[4] ?? 'C:/Metin3Web/itemdesc.txt';
+const npcListPath = process.argv[5] ?? 'C:/Users/Salih Gökmen/Desktop/RootPackUnlocker/Source/npclist.txt';
 const outputPath = fileURLToPath(new URL('../data/proto-catalog.json', import.meta.url));
 const decoder = new TextDecoder('iso-8859-9');
 
@@ -31,6 +32,32 @@ function names(file) {
 }
 
 const mobNames = names(path.join(sourceRoot, 'mob_names.txt'));
+const npcFolders = new Map();
+const npcFolderAliases = new Map();
+const convertedKeys = new Set();
+const convertedPack = path.join(process.env.USERPROFILE ?? '', 'Desktop', 'Metin 2 Mobil Dönüşüm Pack');
+for (const relativeRoot of ['Monster/ymir work/monster', 'monster2/ymir work/monster2', 'NPC/ymir work/npc', 'npc2/ymir work/npc2']) {
+  const root = path.join(convertedPack, relativeRoot);
+  if (!fs.existsSync(root)) continue;
+  for (const entry of fs.readdirSync(root, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !/\.(fbx|msm)$/i.test(entry.name)) continue;
+    convertedKeys.add(path.basename(entry.name, path.extname(entry.name)).toLowerCase());
+    convertedKeys.add(path.basename(entry.parentPath ?? entry.path ?? '').toLowerCase());
+  }
+}
+if (fs.existsSync(npcListPath)) {
+  for (const row of rows(npcListPath)) {
+    const vnum = number(row[0], -1);
+    const folder = String(row[1] ?? '').trim().replaceAll('\\', '/').replace(/\/$/, '');
+    const sharedFolder = String(row[2] ?? '').trim().replaceAll('\\', '/').replace(/\/$/, '');
+    if (vnum === 0 && folder && sharedFolder) npcFolderAliases.set(folder.split('/').at(-1), sharedFolder.split('/').at(-1));
+    if (vnum > 0 && folder) npcFolders.set(vnum, folder.split('/').at(-1));
+  }
+}
+for (const [vnum, folder] of npcFolders) {
+  const key = folder.toLowerCase();
+  npcFolders.set(vnum, convertedKeys.has(key) ? folder : (npcFolderAliases.get(folder) ?? folder));
+}
 const itemNames = names(path.join(sourceRoot, 'item_names.txt'));
 const itemDescriptions = new Map();
 if (fs.existsSync(itemDescriptionPath)) {
@@ -59,7 +86,7 @@ const mobs = mobRows.slice(1).flatMap((row) => {
     aiFlags: String(row[mobIndex.AiFlags] ?? '').trim(),
     raceFlags: String(row[mobIndex.RaceFlags] ?? '').trim(),
     immuneFlags: String(row[mobIndex.ImmuneFlags] ?? '').trim(),
-    folder: String(row[mobIndex.Folder] ?? '').trim(),
+    folder: npcFolders.get(vnum) ?? String(row[mobIndex.Folder] ?? '').trim(),
     st: number(row[mobIndex.St]), dx: number(row[mobIndex.Dx]), ht: number(row[mobIndex.Ht]), iq: number(row[mobIndex.Iq]),
     hp: number(row[mobIndex.MaxHp], 1),
     regenCycle: number(row[mobIndex.RegenCycle]),
@@ -155,6 +182,7 @@ const catalog = {
     itemNames: path.join(sourceRoot, 'item_names.txt'),
     itemDescriptions: fs.existsSync(itemDescriptionPath) ? itemDescriptionPath : '',
     groups: groupPath,
+    npcList: fs.existsSync(npcListPath) ? npcListPath : '',
     encoding: 'ISO-8859-9',
   },
   mobs,

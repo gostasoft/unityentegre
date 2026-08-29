@@ -103,7 +103,14 @@ namespace Metin3Dev.Panel
             if (Mathf.Abs(placement.z) < 0.001f && Physics.Raycast(new Vector3(position.x, 5000f, position.z), Vector3.down, out RaycastHit hit, 10000f))
                 position.y = hit.point.y;
             GameObject prefab = catalog != null ? catalog.Resolve(entity.folder) : null;
-            GameObject instance = prefab != null ? Instantiate(prefab, position, Quaternion.Euler(0f, placement.direction, 0f), runtimeRoot) : CreateFallback(entity, position, placement.direction);
+            if (prefab == null)
+            {
+                Debug.LogError($"[Metin3 Panel] Gerçek model bulunamadı. VNUM={entity.vnum}, klasör='{entity.folder}'. Geçici şekil üretilmedi.");
+                return false;
+            }
+            GameObject instance = Instantiate(prefab, position, Quaternion.Euler(0f, placement.direction, 0f), runtimeRoot);
+            float originalScale = entity.size > 0 ? entity.size / 100f : 1f;
+            instance.transform.localScale *= originalScale;
             instance.name = $"Panel_{placement.id}_{entity.vnum}_{entity.name}";
             Metin3ManagedEntity managed = instance.GetComponent<Metin3ManagedEntity>() ?? instance.AddComponent<Metin3ManagedEntity>();
             managed.Configure(entity, placement.id, placement.respawn_seconds);
@@ -111,18 +118,6 @@ namespace Metin3Dev.Panel
                 instance.AddComponent<Metin2Dev.Gameplay.Metin2MobCombatant>();
             combatant.Configure(entity, placement.respawn_seconds);
             return true;
-        }
-
-        GameObject CreateFallback(Metin3EntityData entity, Vector3 position, float direction)
-        {
-            PrimitiveType primitive = string.Equals(entity.type, "metin", StringComparison.OrdinalIgnoreCase) ? PrimitiveType.Cylinder : PrimitiveType.Capsule;
-            GameObject marker = GameObject.CreatePrimitive(primitive);
-            marker.transform.SetParent(runtimeRoot);
-            marker.transform.SetPositionAndRotation(position, Quaternion.Euler(0f, direction, 0f));
-            marker.transform.localScale = string.Equals(entity.type, "metin", StringComparison.OrdinalIgnoreCase) ? new Vector3(1.5f, 2.5f, 1.5f) : Vector3.one;
-            Renderer renderer = marker.GetComponent<Renderer>();
-            if (renderer != null) renderer.material.color = string.Equals(entity.type, "metin", StringComparison.OrdinalIgnoreCase) ? new Color(0.85f, 0.55f, 0.12f) : new Color(0.62f, 0.12f, 0.10f);
-            return marker;
         }
 
         static bool SceneMatches(string sceneName, string mapCode)

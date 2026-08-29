@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
       hp: override?.hp ?? proto.hp, exp: override?.exp ?? proto.exp,
       min_damage: override?.min_damage ?? proto.minDamage, max_damage: override?.max_damage ?? proto.maxDamage,
       defense: override?.defense ?? proto.defense, attack_speed: override?.attack_speed ?? proto.attackSpeed,
-      move_speed: override?.move_speed ?? proto.moveSpeed, folder: proto.folder,
+      move_speed: override?.move_speed ?? proto.moveSpeed, folder: proto.folder, size: proto.size,
     };
   }).filter(Boolean);
   const revision = `${worldPlacements.length}:${entities.length}:${items.length}:${JSON.stringify(settings)}`;
