@@ -21,6 +21,8 @@ namespace Metin2Dev.Gameplay
         readonly Dictionary<string, Sprite> sprites = new Dictionary<string, Sprite>(StringComparer.OrdinalIgnoreCase);
         readonly List<Image> experiencePoints = new List<Image>();
         readonly Image[] quickSlotHighlights = new Image[8];
+        readonly Text[] inventorySlotLabels = new Text[45];
+        readonly Metin2QuickSlotDragSource[] inventoryDragSources = new Metin2QuickSlotDragSource[45];
         Canvas canvas;
         Font font;
         RectTransform hud;
@@ -37,8 +39,13 @@ namespace Metin2Dev.Gameplay
         Text spText;
         Text characterNameText;
         Text characterLevelText;
+        Text characterExperienceText;
+        readonly Text[] characterStatTexts = new Text[4];
+        Text characterAttackText;
+        Text characterDefenseText;
         Text desktopCoordinateText;
         Metin2PlayerController player;
+        Metin2PlayerState playerState;
         bool gameplayVisible;
         float currentHp;
         float currentSp;
@@ -133,10 +140,13 @@ namespace Metin2Dev.Gameplay
             if (!gameplayVisible) return;
             ApplyHudLayoutMode();
             if (player == null) player = FindFirstObjectByType<Metin2PlayerController>();
+            if (playerState == null) playerState = FindFirstObjectByType<Metin2PlayerState>();
+            SyncPlayerState();
+            RefreshInventorySlots();
             UpdateDesktopCoordinates();
 
             Keyboard keyboard = Keyboard.current;
-            if (keyboard != null)
+            if (keyboard != null && !Metin2GameplayOverlay.IsTyping)
             {
                 if (keyboard.iKey.wasPressedThisFrame) ToggleInventory();
                 if (keyboard.cKey.wasPressedThisFrame) ToggleCharacter();
@@ -338,7 +348,7 @@ namespace Metin2Dev.Gameplay
         {
             CreateTaskButton("Character", new Rect(263, 0, 32, 32), -144f, ToggleCharacter);
             CreateTaskButton("Inventory", new Rect(455, 0, 32, 32), -110f, ToggleInventory);
-            CreateTaskButton("Community", new Rect(359, 0, 32, 32), -76f, () => { });
+            CreateTaskButton("Community", new Rect(359, 0, 32, 32), -76f, ToggleCommunity);
             CreateTaskButton("System", new Rect(320, 127, 32, 32), -42f, CloseAllWindows);
         }
 
@@ -488,7 +498,17 @@ namespace Metin2Dev.Gameplay
                     RawImage itemSlot = CreateAtlasTop(inventoryWindow, "Item Slot " + itemIndex, Texture("public"),
                         new Rect(0, 348, 32, 32), new Vector2(8f + x * 32f, -246f - y * 32f), new Vector2(32f, 32f));
                     itemSlot.raycastTarget = true;
-                    itemSlot.gameObject.AddComponent<Metin2QuickSlotDragSource>().Clear();
+                    inventoryDragSources[itemIndex] = itemSlot.gameObject.AddComponent<Metin2QuickSlotDragSource>();
+                    inventoryDragSources[itemIndex].Clear();
+                    int capturedSlot = itemIndex;
+                    Button useButton = itemSlot.gameObject.AddComponent<Button>();
+                    useButton.targetGraphic = itemSlot;
+                    useButton.onClick.AddListener(() => Metin2InventoryService.Use(capturedSlot));
+                    Text label = CreateText(itemSlot.rectTransform, string.Empty, 7, TextAnchor.MiddleCenter,
+                        Vector2.zero, new Vector2(32f, 32f), new Color(1f, 0.91f, 0.63f));
+                    label.name = "Item Label";
+                    label.raycastTarget = false;
+                    inventorySlotLabels[itemIndex] = label;
                 }
 
             CreateAtlasTop(inventoryWindow, "Money Slot", Texture("public"), new Rect(0, 124, 130, 18),
@@ -499,6 +519,31 @@ namespace Metin2Dev.Gameplay
                 new Color(0.94f, 0.85f, 0.60f));
             money.name = "Money Value";
             inventoryWindow.gameObject.SetActive(false);
+            Metin2InventoryService.EnsureInitialized();
+            RefreshInventorySlots();
+        }
+
+        void RefreshInventorySlots()
+        {
+            if (inventorySlotLabels[0] == null) return;
+            Rect iconUv = new Rect(0f, 348f, 32f, 32f);
+            for (int index = 0; index < inventorySlotLabels.Length; index++)
+            {
+                Metin2InventoryEntry entry = Metin2InventoryService.Get(index);
+                Text label = inventorySlotLabels[index];
+                if (entry == null)
+                {
+                    label.text = string.Empty;
+                    inventoryDragSources[index]?.Clear();
+                    continue;
+                }
+                string shortName = entry.name ?? ("İtem " + entry.vnum);
+                if (shortName.Length > 9) shortName = shortName.Substring(0, 8) + "…";
+                label.text = shortName + (entry.count > 1 ? "\nx" + entry.count : string.Empty);
+                int capturedSlot = index;
+                inventoryDragSources[index]?.ConfigureItem(index, entry.name, Texture("public"), iconUv,
+                    () => Metin2InventoryService.Use(capturedSlot));
+            }
         }
 
         void BuildCharacterWindow()
@@ -540,7 +585,7 @@ namespace Metin2Dev.Gameplay
             characterNameText = CreateValueSlot(page, "Character Name", new Vector2(62f, -34f), new Vector2(130f, 18f), Metin2GameplaySession.CharacterName);
             characterLevelText = CreateValueSlot(page, "Level", new Vector2(12f, -66f), new Vector2(39f, 18f), "1");
             CreateText(page, "Seviye", 10, TextAnchor.MiddleLeft, new Vector2(12f, -53f), new Vector2(42f, 14f), new Color(0.92f, 0.78f, 0.50f));
-            CreateValueSlot(page, "EXP", new Vector2(62f, -66f), new Vector2(130f, 18f), "0");
+            characterExperienceText = CreateValueSlot(page, "EXP", new Vector2(62f, -66f), new Vector2(130f, 18f), "0");
             CreateText(page, "Tecrübe", 10, TextAnchor.MiddleLeft, new Vector2(62f, -53f), new Vector2(65f, 14f), new Color(0.92f, 0.78f, 0.50f));
 
             CreateHorizontalBar(page, new Vector2(12f, -104f), 223f);
@@ -552,7 +597,7 @@ namespace Metin2Dev.Gameplay
             {
                 float y = -132f - index * 25f;
                 CreateText(page, names[index], 11, TextAnchor.MiddleLeft, new Vector2(20f, y), new Vector2(50f, 18f), Color.white);
-                CreateValueSlot(page, names[index] + " Value", new Vector2(72f, y), new Vector2(39f, 18f), values[index].ToString());
+                characterStatTexts[index] = CreateValueSlot(page, names[index] + " Value", new Vector2(72f, y), new Vector2(39f, 18f), values[index].ToString());
                 CreateTextButton(page, "+", new Vector2(116f, y - 1f), new Vector2(18f, 18f), () => { });
             }
 
@@ -563,9 +608,9 @@ namespace Metin2Dev.Gameplay
             int attack = 20 + Metin2GameplaySession.Strength * 2 + sourceLevel * 3;
             int defence = 10 + Metin2GameplaySession.Vitality * 2 + sourceLevel * 2;
             CreateText(page, "Saldırı Değeri", 10, TextAnchor.MiddleLeft, new Vector2(18f, -270f), new Vector2(100f, 18f), Color.white);
-            CreateValueSlot(page, "Attack", new Vector2(142f, -270f), new Vector2(90f, 18f), attack.ToString());
+            characterAttackText = CreateValueSlot(page, "Attack", new Vector2(142f, -270f), new Vector2(90f, 18f), attack.ToString());
             CreateText(page, "Savunma", 10, TextAnchor.MiddleLeft, new Vector2(18f, -294f), new Vector2(100f, 18f), Color.white);
-            CreateValueSlot(page, "Defence", new Vector2(142f, -294f), new Vector2(90f, 18f), defence.ToString());
+            characterDefenseText = CreateValueSlot(page, "Defence", new Vector2(142f, -294f), new Vector2(90f, 18f), defence.ToString());
         }
 
         void BuildSkillPage(RectTransform page)
@@ -708,11 +753,35 @@ namespace Metin2Dev.Gameplay
             spText.text = Mathf.CeilToInt(currentSp) + " / " + Mathf.CeilToInt(maxSp);
             if (characterNameText != null) characterNameText.text = Metin2GameplaySession.CharacterName;
             if (characterLevelText != null) characterLevelText.text = level.ToString();
+            if (characterExperienceText != null) characterExperienceText.text = experience + " / " + nextExperience;
+            if (playerState != null)
+            {
+                int[] stats = { playerState.Vitality, playerState.Intelligence, playerState.Strength, playerState.Dexterity };
+                for (int index = 0; index < characterStatTexts.Length; index++)
+                    if (characterStatTexts[index] != null) characterStatTexts[index].text = stats[index].ToString();
+                if (characterAttackText != null) characterAttackText.text = playerState.AttackMin + " - " + playerState.AttackMax;
+                if (characterDefenseText != null) characterDefenseText.text = playerState.Defense.ToString();
+            }
             float exp = nextExperience > 0 ? Mathf.Clamp01(experience / (float)nextExperience) : 0f;
             for (int index = 0; index < experiencePoints.Count; index++)
                 experiencePoints[index].fillAmount = Mathf.Clamp01(exp * 4f - index);
             Text money = inventoryWindow != null ? inventoryWindow.Find("Money Value")?.GetComponent<Text>() : null;
             if (money != null) money.text = gold.ToString("N0");
+        }
+
+        void SyncPlayerState()
+        {
+            if (playerState == null) return;
+            level = playerState.Level;
+            experience = playerState.Experience;
+            nextExperience = playerState.NextExperience;
+            currentHp = playerState.CurrentHp;
+            maxHp = playerState.MaxHp;
+            currentSp = playerState.CurrentSp;
+            maxSp = playerState.MaxSp;
+            currentStamina = playerState.CurrentStamina;
+            maxStamina = playerState.MaxStamina;
+            gold = playerState.Gold;
         }
 
         void UpdateQuickSlotHighlights(Keyboard keyboard)
@@ -746,6 +815,12 @@ namespace Metin2Dev.Gameplay
         {
             characterWindow.gameObject.SetActive(!characterWindow.gameObject.activeSelf);
             if (characterWindow.gameObject.activeSelf) characterWindow.SetAsLastSibling();
+        }
+
+        void ToggleCommunity()
+        {
+            Metin2GameplayOverlay overlay = FindFirstObjectByType<Metin2GameplayOverlay>();
+            if (overlay != null) overlay.ToggleMessenger();
         }
 
         void ToggleCameraView()

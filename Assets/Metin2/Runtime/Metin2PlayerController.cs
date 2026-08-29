@@ -40,9 +40,13 @@ namespace Metin2Dev.Gameplay
         bool clickMoveActive;
         Vector3 clickMoveDestination;
         float nextHeldAttackAt;
+        float nextAutoAttackAt;
+        bool actionHitApplied;
+        Metin2MobCombatant combatTarget;
         readonly List<Metin2MotionRecord> skills = new List<Metin2MotionRecord>();
 
         public string CharacterName { get; private set; }
+        public Metin2MobCombatant CombatTarget => combatTarget;
 
         public void Initialize(Metin2RaceMotionSet set, Animator visualAnimator, Camera camera, string characterName)
         {
@@ -89,6 +93,7 @@ namespace Metin2Dev.Gameplay
             moveInput = Vector2.zero;
             runInput = false;
             if (keyboard == null) return;
+            if (Metin2GameplayOverlay.IsTyping) return;
 
             // Locomotion is driven by the original walk/run clips. A normal WASD press uses walk;
             // holding Shift selects the source run clip, whose Accumulation / MotionDuration sets the speed.
@@ -162,6 +167,13 @@ namespace Metin2Dev.Gameplay
                 Debug.LogWarning("Selected character has no source skill mapped to key " + (index + 1) + ".");
                 return;
             }
+            Metin2PlayerState state = GetComponent<Metin2PlayerState>();
+            int spCost = 12 + index * 4;
+            if (state != null && !state.SpendSp(spCost))
+            {
+                Metin2ChatService.Append(Metin2ChatChannel.Info, "Yeterli SP yok.");
+                return;
+            }
             PlayAction(skill);
         }
 
@@ -170,9 +182,35 @@ namespace Metin2Dev.Gameplay
             if (gameplayCamera == null) return;
             int groundMask = ~(1 << LocalPlayerLayer);
             Ray ray = gameplayCamera.ScreenPointToRay(screenPosition);
+            RaycastHit[] hits = Physics.RaycastAll(ray, 10000f, groundMask, QueryTriggerInteraction.Ignore);
+            Array.Sort(hits, (left, right) => left.distance.CompareTo(right.distance));
+            foreach (RaycastHit candidate in hits)
+            {
+                Metin2MobCombatant mob = candidate.collider.GetComponentInParent<Metin2MobCombatant>();
+                if (mob == null || !mob.IsAttackable) continue;
+                SetCombatTarget(mob);
+                clickMoveActive = true;
+                clickMoveDestination = mob.transform.position;
+                return;
+            }
             if (!Physics.Raycast(ray, out RaycastHit hit, 10000f, groundMask, QueryTriggerInteraction.Ignore)) return;
+            ClearCombatTarget();
             clickMoveDestination = hit.point;
             clickMoveActive = true;
+        }
+
+        void SetCombatTarget(Metin2MobCombatant target)
+        {
+            if (combatTarget == target) return;
+            if (combatTarget != null) combatTarget.Select(false);
+            combatTarget = target;
+            if (combatTarget != null) combatTarget.Select(true);
+        }
+
+        void ClearCombatTarget()
+        {
+            if (combatTarget != null) combatTarget.Select(false);
+            combatTarget = null;
         }
 
         void UpdateMovement()
@@ -186,9 +224,39 @@ namespace Metin2Dev.Gameplay
             Vector3 direction = Vector3.zero;
             if (moveInput.sqrMagnitude > 0.0001f)
             {
+                if (combatTarget != null) ClearCombatTarget();
                 Vector3 forward = Vector3.ProjectOnPlane(gameplayCamera.transform.forward, Vector3.up).normalized;
                 Vector3 right = Vector3.ProjectOnPlane(gameplayCamera.transform.right, Vector3.up).normalized;
                 direction = (forward * moveInput.y) + (right * moveInput.x);
+            }
+            else if (combatTarget != null)
+            {
+                if (combatTarget.IsDead)
+                {
+                    ClearCombatTarget();
+                    clickMoveActive = false;
+                }
+                else
+                {
+                    Vector3 toTarget = Vector3.ProjectOnPlane(combatTarget.transform.position - transform.position, Vector3.up);
+                    float stopRange = 2.8f;
+                    if (toTarget.magnitude > stopRange)
+                    {
+                        direction = toTarget;
+                        clickMoveDestination = combatTarget.transform.position;
+                        clickMoveActive = true;
+                    }
+                    else
+                    {
+                        clickMoveActive = false;
+                        if (toTarget.sqrMagnitude > 0.001f) transform.rotation = Quaternion.LookRotation(toTarget.normalized, Vector3.up);
+                        if (Time.time >= nextAutoAttackAt)
+                        {
+                            nextAutoAttackAt = Time.time + 0.25f;
+                            QueueAttack();
+                        }
+                    }
+                }
             }
             else if (clickMoveActive)
             {
@@ -248,6 +316,9 @@ namespace Metin2Dev.Gameplay
             float elapsed = Time.time - motionStartedAt;
             while (nextMotionEvent < currentMotion.events.Count && currentMotion.events[nextMotionEvent].startTime <= elapsed)
                 FireMotionEvent(currentMotion.events[nextMotionEvent++]);
+            float impactTime = currentMotion.attackStartTime >= 0f ? currentMotion.attackStartTime : currentMotion.duration * 0.38f;
+            if (!actionHitApplied && combatTarget != null && elapsed >= impactTime)
+                ApplyTargetHit();
             if (comboQueued && currentMotion.inputLimitTime >= 0f && elapsed >= currentMotion.inputLimitTime)
                 comboQueued = false;
             if (comboQueued && elapsed >= ComboLinkTime(currentMotion))
@@ -287,6 +358,7 @@ namespace Metin2Dev.Gameplay
             currentMotion = motion;
             motionStartedAt = Time.time;
             nextMotionEvent = 0;
+            actionHitApplied = false;
             comboQueued = false;
             PlayAnimatorState(motion, fade);
         }
@@ -421,9 +493,23 @@ namespace Metin2Dev.Gameplay
                     IMetin2Damageable damageable = hit.GetComponentInParent<IMetin2Damageable>();
                     if (damageable == null || hit.transform.IsChildOf(transform)) continue;
                     damageable.ReceiveMetin2Hit(this, currentMotion, motionEvent);
+                    if (damageable is Metin2MobCombatant mob && mob == combatTarget) actionHitApplied = true;
                     remaining--;
                 }
             }
+        }
+
+        void ApplyTargetHit()
+        {
+            if (combatTarget == null || combatTarget.IsDead) return;
+            Vector3 delta = Vector3.ProjectOnPlane(combatTarget.transform.position - transform.position, Vector3.up);
+            float range = currentMotion != null && currentMotion.weaponLength > 0f
+                ? Mathf.Clamp(currentMotion.weaponLength * 0.01f + 1.5f, 2.5f, 5f)
+                : 3.25f;
+            if (delta.magnitude > range) return;
+            actionHitApplied = true;
+            combatTarget.ReceiveMetin2Hit(this, currentMotion, null);
+            if (combatTarget.IsDead) ClearCombatTarget();
         }
 
         static float EffectLifetime(GameObject effect)

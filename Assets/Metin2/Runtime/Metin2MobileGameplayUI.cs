@@ -201,15 +201,28 @@ namespace Metin2Dev.Gameplay
 
             if (Application.isPlaying)
             {
-                int level = Mathf.Max(1, Metin2GameplaySession.Level);
-                int vitality = Mathf.Max(1, Metin2GameplaySession.Vitality);
-                int intelligence = Mathf.Max(1, Metin2GameplaySession.Intelligence);
-                maxHp = 500f + vitality * 40f + level * 50f;
-                maxSp = 150f + intelligence * 25f + level * 12f;
-                hp = maxHp;
-                sp = maxSp;
-                stamina = 1f;
-                experience = 0f;
+                Metin2PlayerState state = Metin2PlayerState.Local;
+                if (state != null)
+                {
+                    maxHp = state.MaxHp;
+                    maxSp = state.MaxSp;
+                    hp = state.CurrentHp;
+                    sp = state.CurrentSp;
+                    stamina = state.MaxStamina > 0 ? state.CurrentStamina / (float)state.MaxStamina : 0f;
+                    experience = state.NextExperience > 0 ? state.Experience / (float)state.NextExperience : 0f;
+                }
+                else
+                {
+                    int level = Mathf.Max(1, Metin2GameplaySession.Level);
+                    int vitality = Mathf.Max(1, Metin2GameplaySession.Vitality);
+                    int intelligence = Mathf.Max(1, Metin2GameplaySession.Intelligence);
+                    maxHp = 500f + vitality * 40f + level * 50f;
+                    maxSp = 150f + intelligence * 25f + level * 12f;
+                    hp = maxHp;
+                    sp = maxSp;
+                    stamina = 1f;
+                    experience = 0f;
+                }
             }
             else
             {

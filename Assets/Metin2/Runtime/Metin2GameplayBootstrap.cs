@@ -113,6 +113,8 @@ namespace Metin2Dev.Gameplay
 
             Metin2PlayerController controller = player.AddComponent<Metin2PlayerController>();
             controller.Initialize(set, animator, camera, Metin2GameplaySession.CharacterName);
+            player.AddComponent<Metin2PlayerState>();
+            player.AddComponent<Metin2GameplayOverlay>();
             capsule.enabled = true;
         }
 

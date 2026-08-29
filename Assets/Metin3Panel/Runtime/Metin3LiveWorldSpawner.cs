@@ -107,6 +107,9 @@ namespace Metin3Dev.Panel
             instance.name = $"Panel_{placement.id}_{entity.vnum}_{entity.name}";
             Metin3ManagedEntity managed = instance.GetComponent<Metin3ManagedEntity>() ?? instance.AddComponent<Metin3ManagedEntity>();
             managed.Configure(entity, placement.id, placement.respawn_seconds);
+            Metin2Dev.Gameplay.Metin2MobCombatant combatant = instance.GetComponent<Metin2Dev.Gameplay.Metin2MobCombatant>() ??
+                instance.AddComponent<Metin2Dev.Gameplay.Metin2MobCombatant>();
+            combatant.Configure(entity, placement.respawn_seconds);
             return true;
         }
 
