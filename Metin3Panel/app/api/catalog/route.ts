@@ -20,7 +20,8 @@ export async function GET(request: NextRequest) {
   const query = normalized(request.nextUrl.searchParams.get('query'));
   const page = Math.max(1, Number(request.nextUrl.searchParams.get('page') ?? 1));
   let source: Array<ProtoMob | ProtoItem | { vnum: number; name: string; leaderVnum: number; members: number[] }>;
-  if (kind === 'mobs') source = protoCatalog.mobs.filter((row) => row.kind !== 'metin');
+  if (kind === 'mobs') source = protoCatalog.mobs.filter((row) => row.kind === 'mob');
+  else if (kind === 'npcs') source = protoCatalog.mobs.filter((row) => row.kind === 'npc');
   else if (kind === 'metins') source = protoCatalog.mobs.filter((row) => row.kind === 'metin');
   else if (kind === 'items') source = protoCatalog.items;
   else if (kind === 'groups') source = protoCatalog.groups;
@@ -89,9 +90,9 @@ export async function POST(request: NextRequest) {
     await db.prepare(`INSERT INTO items (vnum,name,category,buy_price,sell_price,stackable,enabled,updated_at)
       VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(vnum) DO UPDATE SET name=excluded.name,category=excluded.category,buy_price=excluded.buy_price,sell_price=excluded.sell_price,stackable=excluded.stackable,enabled=excluded.enabled,updated_at=excluded.updated_at`)
       .bind(vnum, String(data.name ?? ''), String(data.category ?? 'Diğer'), Number(data.buy_price ?? 0), Number(data.sell_price ?? 0), data.stackable ? 1 : 0, data.enabled === false ? 0 : 1, now).run();
-  } else if (kind === 'mobs' || kind === 'metins') {
+  } else if (kind === 'mobs' || kind === 'metins' || kind === 'npcs') {
     const protoType = protoCatalog.mobs.find((row) => row.vnum === vnum)?.kind;
-    const type = kind === 'metins' ? 'metin' : protoType ?? 'mob';
+    const type = kind === 'metins' ? 'metin' : kind === 'npcs' ? 'npc' : protoType ?? 'mob';
     await db.prepare(`INSERT INTO entities (vnum,name,type,rank,level,hp,exp,min_damage,max_damage,defense,attack_speed,move_speed,enabled,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(vnum) DO UPDATE SET name=excluded.name,type=excluded.type,rank=excluded.rank,level=excluded.level,hp=excluded.hp,exp=excluded.exp,min_damage=excluded.min_damage,max_damage=excluded.max_damage,defense=excluded.defense,attack_speed=excluded.attack_speed,move_speed=excluded.move_speed,enabled=excluded.enabled,updated_at=excluded.updated_at`)
       .bind(vnum, String(data.name ?? ''), type, String(data.rank ?? 'PAWN'), Number(data.level ?? 1), Number(data.hp ?? 1), Number(data.exp ?? 0), Number(data.min_damage ?? 0), Number(data.max_damage ?? 0), Number(data.defense ?? 0), Number(data.attack_speed ?? 100), Number(data.move_speed ?? 100), data.enabled === false ? 0 : 1, now).run();

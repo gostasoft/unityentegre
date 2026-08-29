@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   const kind = String(data.target_kind ?? 'mob');
   const targetVnum = Number(data.target_vnum);
   const mapId = Number(data.map_id);
-  if (!['mob', 'metin', 'group'].includes(kind) || !targetVnum || !mapId)
+  if (!['mob', 'metin', 'npc', 'group'].includes(kind) || !targetVnum || !mapId)
     return NextResponse.json({ error: 'Harita ve hedef VNUM zorunludur.' }, { status: 400 });
   if (kind === 'group' ? !findGroup(targetVnum) : !findMob(targetVnum))
     return NextResponse.json({ error: 'VNUM proto dosyalarında doğrulanamadı.' }, { status: 400 });

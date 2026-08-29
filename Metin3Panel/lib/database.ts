@@ -83,7 +83,10 @@ export async function ensureDatabase() {
   }
   await seedBiology(db);
   const count = await db.prepare('SELECT COUNT(*) AS count FROM maps').first<{ count: number }>();
-  if (Number(count?.count ?? 0) > 0) return;
+  if (Number(count?.count ?? 0) > 0) {
+    await migrateLegacyPlacements(db);
+    return;
+  }
 
   const now = new Date().toISOString();
   await db.batch([
@@ -125,6 +128,40 @@ export async function ensureDatabase() {
     db.prepare('INSERT INTO drops (entity_id,item_id,chance,min_count,max_count,min_level,max_level) VALUES (?,?,?,?,?,?,?)').bind(metin.id,moonSword.id,2.5,1,1,25,50),
     ...(shop ? [db.prepare('INSERT INTO shop_items (shop_id,item_id,buy_price,sell_price,position) VALUES (?,?,?,?,?)').bind(shop.id,sword.id,1500,250,0)] : []),
   ]);
+  await migrateLegacyPlacements(db);
+}
+
+async function migrateLegacyPlacements(db: D1Database) {
+  // Eski dünya editöründeki doğrulanmış koordinatları canlı oyun tablosuna
+  // tek seferlik ve tekrar çalıştırılabilir biçimde taşır. Tahmini konum üretmez.
+  try {
+    const legacy = await db.prepare(`SELECT s.*,e.vnum AS target_vnum,e.type AS entity_type
+      FROM spawns s JOIN entities e ON e.id=s.entity_id WHERE s.enabled=1`).all<Record<string, unknown>>();
+    const current = await db.prepare('SELECT map_id,target_kind,target_vnum,x,y,z FROM world_placements').all<Record<string, unknown>>();
+    const keys = new Set((current.results ?? []).map(placementKey));
+    for (const row of legacy.results ?? []) {
+      const kind = row.entity_type === 'npc' ? 'npc' : row.entity_type === 'metin' ? 'metin' : 'mob';
+      const candidate = { ...row, target_kind: kind };
+      const key = placementKey(candidate);
+      if (keys.has(key)) continue;
+      await db.prepare(`INSERT INTO world_placements
+        (map_id,target_kind,target_vnum,x,y,z,direction,radius,respawn_seconds,count,enabled,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,1,?)`).bind(
+          Number(row.map_id), kind, Number(row.target_vnum), Number(row.x), Number(row.y), Number(row.z ?? 0),
+          Number(row.direction ?? 0), 0, kind === 'npc' ? 86400 : Math.max(1, Number(row.respawn_seconds ?? 60)),
+          kind === 'npc' ? 1 : Math.max(1, Number(row.group_size ?? 1)), new Date().toISOString(),
+        ).run();
+      keys.add(key);
+    }
+  } catch (error) {
+    // Eski tablo farklı bir sürümden gelmişse canlı API yine çalışmaya devam etsin.
+    console.warn('[database] Eski yerleşimler taşınamadı:', error);
+  }
+}
+
+function placementKey(row: Record<string, unknown>) {
+  const coordinate = (value: unknown) => Number(value ?? 0).toFixed(3);
+  return `${Number(row.map_id)}:${String(row.target_kind)}:${Number(row.target_vnum)}:${coordinate(row.x)}:${coordinate(row.y)}:${coordinate(row.z)}`;
 }
 
 async function seedBiology(db: D1Database) {

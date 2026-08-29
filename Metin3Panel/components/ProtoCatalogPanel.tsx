@@ -17,7 +17,7 @@ const copy = {
 
 export function ProtoCatalogPanel({ kind, user }: { kind: Kind; user: { name: string; email: string } }) {
   const router = useRouter();
-  const [mode, setMode] = useState<'catalog' | 'groups'>(kind === 'mobs' ? 'catalog' : 'catalog');
+  const [mode, setMode] = useState<'catalog' | 'groups' | 'npcs'>('catalog');
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -27,7 +27,7 @@ export function ProtoCatalogPanel({ kind, user }: { kind: Kind; user: { name: st
   const [maps, setMaps] = useState<Row[]>([]);
   const [placements, setPlacements] = useState<Row[]>([]);
   const [toast, setToast] = useState('');
-  const pageKind = mode === 'groups' ? 'groups' : kind;
+  const pageKind = mode === 'groups' ? 'groups' : mode === 'npcs' ? 'npcs' : kind;
   const ui = copy[kind];
   const initials = user.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
 
@@ -61,10 +61,11 @@ export function ProtoCatalogPanel({ kind, user }: { kind: Kind; user: { name: st
     setToast('Yerleşim kaldırıldı.'); await loadPlacements();
   }
   function place(row: Row) {
-    setPlacement({ map_id: maps[0]?.id, target_kind: mode === 'groups' ? 'group' : kind === 'metins' ? 'metin' : 'mob', target_vnum: row.vnum, target_name: row.name, x: 512, y: 512, z: 0, direction: 0, radius: 0, respawn_seconds: 60, count: 1, enabled: true });
+    const targetKind = mode === 'groups' ? 'group' : mode === 'npcs' || row.kind === 'npc' ? 'npc' : kind === 'metins' ? 'metin' : 'mob';
+    setPlacement({ map_id: maps[0]?.id, target_kind: targetKind, target_vnum: row.vnum, target_name: row.name, x: 512, y: 512, z: 0, direction: 0, radius: 0, respawn_seconds: targetKind === 'npc' ? 86400 : 60, count: 1, enabled: true });
   }
   function openDetail(row: Row) {
-    router.push(`/panel/${mode === 'groups' ? 'groups' : kind}/${row.vnum}`);
+    router.push(`/panel/${mode === 'groups' ? 'groups' : mode === 'npcs' ? 'mobs' : kind}/${row.vnum}`);
   }
   const columns = useMemo(() => mode === 'groups'
     ? [['vnum','Grup VNUM'],['name','Grup'],['leaderVnum','Lider'],['memberCount','Üye']]
@@ -88,9 +89,9 @@ export function ProtoCatalogPanel({ kind, user }: { kind: Kind; user: { name: st
     <main className="main">
       <header className="topbar"><div className="search"><Search size={18}/><input value={query} onChange={(event)=>setQuery(event.target.value)} placeholder={`${ui.title} içinde ad veya VNUM ara...`}/><kbd>{data.total.toLocaleString('tr-TR')}</kbd></div><div className="top-actions"><div className="live-badge"><i/> OYUN SENKRONU</div><button className="icon-button" onClick={()=>void load()} title="Yenile"><RefreshCw className={loading?'spin':''} size={18}/></button><div className="avatar small">{initials}</div></div></header>
       <div className="content">
-        <section className="page-heading"><div><p className="eyebrow"><ui.icon size={14}/>{ui.eyebrow}</p><h1>{mode==='groups'?'Mob Grupları':ui.title}</h1><p>{mode==='groups'?'group.txt içerisindeki lider ve üye VNUM’larını doğrulayarak haritaya grup yerleştir.':ui.description}</p></div></section>
-        {kind==='mobs'&&<div className="catalog-tabs"><button className={mode==='catalog'?'active':''} onClick={()=>{setMode('catalog');setPage(1)}}><Skull/> Mob Kataloğu</button><button className={mode==='groups'?'active':''} onClick={()=>{setMode('groups');setPage(1)}}><UsersRound/> Mob Grupları</button></div>}
-        <section className="catalog-summary"><div><ui.icon/><span><small>DOĞRULANAN KAYIT</small><b>{data.total.toLocaleString('tr-TR')}</b></span></div><div><MapPin/><span><small>CANLI YERLEŞİM</small><b>{placements.filter((row)=>mode==='groups'?row.target_kind==='group':row.target_kind===(kind==='metins'?'metin':'mob')).length}</b></span></div><div><Boxes/><span><small>PROTO TARİHİ</small><b>{data.generatedAt?new Date(data.generatedAt).toLocaleDateString('tr-TR'):'—'}</b></span></div></section>
+        <section className="page-heading"><div><p className="eyebrow"><ui.icon size={14}/>{ui.eyebrow}</p><h1>{mode==='groups'?'Mob Grupları':mode==='npcs'?'NPC’ler':ui.title}</h1><p>{mode==='groups'?'group.txt içerisindeki lider ve üye VNUM’larını doğrulayarak haritaya grup yerleştir.':mode==='npcs'?'NPC proto kayıtlarını doğrula ve sabit dünya koordinatlarına yerleştir.':ui.description}</p></div></section>
+        {kind==='mobs'&&<div className="catalog-tabs"><button className={mode==='catalog'?'active':''} onClick={()=>{setMode('catalog');setPage(1)}}><Skull/> Mob Kataloğu</button><button className={mode==='npcs'?'active':''} onClick={()=>{setMode('npcs');setPage(1)}}><MapPin/> NPC’ler</button><button className={mode==='groups'?'active':''} onClick={()=>{setMode('groups');setPage(1)}}><UsersRound/> Mob Grupları</button></div>}
+        <section className="catalog-summary"><div><ui.icon/><span><small>DOĞRULANAN KAYIT</small><b>{data.total.toLocaleString('tr-TR')}</b></span></div><div><MapPin/><span><small>CANLI YERLEŞİM</small><b>{placements.filter((row)=>mode==='groups'?row.target_kind==='group':mode==='npcs'?row.target_kind==='npc':row.target_kind===(kind==='metins'?'metin':'mob')).length}</b></span></div><div><Boxes/><span><small>PROTO TARİHİ</small><b>{data.generatedAt?new Date(data.generatedAt).toLocaleDateString('tr-TR'):'—'}</b></span></div></section>
         <article className="panel data-table catalog-table"><div className="panel-head"><div><span className="panel-kicker">PROTO KATALOĞU</span><h2>{data.total.toLocaleString('tr-TR')} kayıt</h2></div><div className="pagination"><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft/></button><span>{page} / {data.pages}</span><button disabled={page>=data.pages} onClick={()=>setPage(page+1)}><ChevronRight/></button></div></div>
           <div className="table-scroll"><table><thead><tr>{columns.map(([key,label])=><th key={key}>{label}</th>)}<th>İşlem</th></tr></thead><tbody>{data.rows.map((row)=><tr className="catalog-row" key={row.vnum} tabIndex={0} onClick={()=>openDetail(row)} onKeyDown={(event)=>{if(event.key==='Enter')openDetail(row)}}>{columns.map(([key])=><td key={key}>{typeof row[key]==='number'?Number(row[key]).toLocaleString('tr-TR'):String(row[key]??'—')}</td>)}<td className="row-actions"><button title="Detay sayfasını aç" onClick={(event)=>{event.stopPropagation();openDetail(row)}}><ChevronRight/></button>{kind!=='items'&&<button title="Haritaya yerleştir" onClick={(event)=>{event.stopPropagation();place(row)}}><MapPin/></button>}</td></tr>)}</tbody></table>{loading&&<div className="table-loading"><LoaderCircle className="spin"/> Veriler doğrulanıyor</div>}</div>
         </article>
