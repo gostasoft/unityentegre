@@ -1,11 +1,12 @@
 import { env } from 'cloudflare:workers';
+import originalSpawnsJson from '../data/original-spawns.json';
 
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS maps (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, width INTEGER NOT NULL DEFAULT 1024, height INTEGER NOT NULL DEFAULT 1024, enabled INTEGER NOT NULL DEFAULT 1)`,
   `CREATE TABLE IF NOT EXISTS entities (id INTEGER PRIMARY KEY AUTOINCREMENT, vnum INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, type TEXT NOT NULL, rank TEXT NOT NULL DEFAULT 'Normal', level INTEGER NOT NULL DEFAULT 1, hp INTEGER NOT NULL DEFAULT 100, exp INTEGER NOT NULL DEFAULT 0, min_damage INTEGER NOT NULL DEFAULT 1, max_damage INTEGER NOT NULL DEFAULT 2, defense INTEGER NOT NULL DEFAULT 0, attack_speed INTEGER NOT NULL DEFAULT 100, move_speed INTEGER NOT NULL DEFAULT 100, enabled INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY AUTOINCREMENT, vnum INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'Diğer', buy_price INTEGER NOT NULL DEFAULT 0, sell_price INTEGER NOT NULL DEFAULT 0, stackable INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS spawns (id INTEGER PRIMARY KEY AUTOINCREMENT, map_id INTEGER NOT NULL REFERENCES maps(id) ON DELETE CASCADE, entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, x REAL NOT NULL, y REAL NOT NULL, z REAL NOT NULL DEFAULT 0, direction REAL NOT NULL DEFAULT 0, respawn_seconds INTEGER NOT NULL DEFAULT 60, group_size INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1)`,
-  `CREATE TABLE IF NOT EXISTS world_placements (id INTEGER PRIMARY KEY AUTOINCREMENT, map_id INTEGER NOT NULL REFERENCES maps(id) ON DELETE CASCADE, target_kind TEXT NOT NULL, target_vnum INTEGER NOT NULL, x REAL NOT NULL, y REAL NOT NULL, z REAL NOT NULL DEFAULT 0, direction REAL NOT NULL DEFAULT 0, radius REAL NOT NULL DEFAULT 0, respawn_seconds INTEGER NOT NULL DEFAULT 60, count INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS world_placements (id INTEGER PRIMARY KEY AUTOINCREMENT, map_id INTEGER NOT NULL REFERENCES maps(id) ON DELETE CASCADE, target_kind TEXT NOT NULL, target_vnum INTEGER NOT NULL, x REAL NOT NULL, y REAL NOT NULL, z REAL NOT NULL DEFAULT 0, direction REAL NOT NULL DEFAULT 0, radius REAL NOT NULL DEFAULT 0, spread_x REAL NOT NULL DEFAULT 0, spread_y REAL NOT NULL DEFAULT 0, spawn_percent REAL NOT NULL DEFAULT 100, respawn_seconds INTEGER NOT NULL DEFAULT 60, count INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1, source_key TEXT, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS proto_overrides (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, vnum INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(kind,vnum))`,
   `CREATE TABLE IF NOT EXISTS drops (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE, chance REAL NOT NULL DEFAULT 1, min_count INTEGER NOT NULL DEFAULT 1, max_count INTEGER NOT NULL DEFAULT 1, min_level INTEGER NOT NULL DEFAULT 1, max_level INTEGER NOT NULL DEFAULT 120)`,
   `CREATE TABLE IF NOT EXISTS shops (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1)`,
@@ -51,6 +52,7 @@ const schemaStatements = [
 const requiredColumns: Record<string, Array<[string,string]>> = {
   biology_levels: [['quest_name',"TEXT NOT NULL DEFAULT ''"],['giver_name',"TEXT NOT NULL DEFAULT 'Biyolog Chaegirab'"],['soul_item_vnum','INTEGER']],
   players: [['yang','INTEGER NOT NULL DEFAULT 0'],['won','INTEGER NOT NULL DEFAULT 0'],['last_map_code',"TEXT NOT NULL DEFAULT ''"],['last_x','REAL NOT NULL DEFAULT 0'],['last_y','REAL NOT NULL DEFAULT 0'],['last_ip',"TEXT NOT NULL DEFAULT ''"],['hwid',"TEXT NOT NULL DEFAULT ''"],['pc_id',"TEXT NOT NULL DEFAULT ''"]],
+  world_placements: [['spread_x','REAL NOT NULL DEFAULT 0'],['spread_y','REAL NOT NULL DEFAULT 0'],['spawn_percent','REAL NOT NULL DEFAULT 100'],['source_key','TEXT']],
 };
 
 export function database(): D1Database {
@@ -66,6 +68,7 @@ export async function ensureDatabase() {
     const names = new Set((existing.results ?? []).map((column) => column.name));
     for (const [name, definition] of columns) if (!names.has(name)) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`).run();
   }
+  await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_world_placements_source ON world_placements(source_key)').run();
   await db.prepare('PRAGMA optimize').run();
   const advancedCount = await db.prepare('SELECT COUNT(*) AS count FROM exp_levels').first<{ count: number }>();
   if (Number(advancedCount?.count ?? 0) === 0) {
@@ -85,6 +88,7 @@ export async function ensureDatabase() {
   const count = await db.prepare('SELECT COUNT(*) AS count FROM maps').first<{ count: number }>();
   if (Number(count?.count ?? 0) > 0) {
     await migrateLegacyPlacements(db);
+    await seedOriginalWorld(db);
     return;
   }
 
@@ -129,6 +133,45 @@ export async function ensureDatabase() {
     ...(shop ? [db.prepare('INSERT INTO shop_items (shop_id,item_id,buy_price,sell_price,position) VALUES (?,?,?,?,?)').bind(shop.id,sword.id,1500,250,0)] : []),
   ]);
   await migrateLegacyPlacements(db);
+  await seedOriginalWorld(db);
+}
+
+type OriginalSpawnCatalog = {
+  revision: string;
+  maps: Array<{
+    code: string; name: string; width: number; height: number;
+    placements: Array<{
+      sourceKey: string; targetKind: string; targetVnum: number;
+      x: number; y: number; z: number; direction: number; spreadX: number; spreadY: number;
+      respawnSeconds: number; percent: number; count: number;
+    }>;
+  }>;
+};
+
+async function seedOriginalWorld(db: D1Database) {
+  const catalog = originalSpawnsJson as OriginalSpawnCatalog;
+  const imported = await db.prepare("SELECT value FROM settings WHERE key='original_regens_revision'").first<{ value: string }>();
+  if (imported?.value === catalog.revision) return;
+  const now = new Date().toISOString();
+  for (const map of catalog.maps) {
+    await db.prepare(`INSERT INTO maps (code,name,width,height,enabled) VALUES (?,?,?,?,1)
+      ON CONFLICT(code) DO UPDATE SET name=excluded.name,width=excluded.width,height=excluded.height,enabled=1`)
+      .bind(map.code, map.name, map.width, map.height).run();
+    const savedMap = await db.prepare('SELECT id FROM maps WHERE code=?').bind(map.code).first<{ id: number }>();
+    if (!savedMap) continue;
+    const statements = map.placements.map((placement) => db.prepare(`INSERT INTO world_placements
+      (map_id,target_kind,target_vnum,x,y,z,direction,radius,spread_x,spread_y,spawn_percent,respawn_seconds,count,enabled,source_key,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)
+      ON CONFLICT(source_key) DO UPDATE SET map_id=excluded.map_id,target_kind=excluded.target_kind,target_vnum=excluded.target_vnum,
+      x=excluded.x,y=excluded.y,z=excluded.z,direction=excluded.direction,spread_x=excluded.spread_x,spread_y=excluded.spread_y,
+      spawn_percent=excluded.spawn_percent,respawn_seconds=excluded.respawn_seconds,count=excluded.count,enabled=1,updated_at=excluded.updated_at`)
+      .bind(savedMap.id, placement.targetKind, placement.targetVnum, placement.x, placement.y, placement.z,
+        placement.direction, Math.max(placement.spreadX, placement.spreadY), placement.spreadX, placement.spreadY,
+        placement.percent, placement.respawnSeconds, placement.count, placement.sourceKey, now));
+    for (let offset = 0; offset < statements.length; offset += 50) await db.batch(statements.slice(offset, offset + 50));
+  }
+  await db.prepare(`INSERT INTO settings (key,value,updated_at) VALUES ('original_regens_revision',?,?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).bind(catalog.revision, now).run();
 }
 
 async function migrateLegacyPlacements(db: D1Database) {

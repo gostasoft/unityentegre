@@ -11,7 +11,8 @@
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "proto:import": "node scripts/import-protos.mjs"
+    "proto:import": "node scripts/import-protos.mjs",
+    "regens:import": "node scripts/import-map-regens.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

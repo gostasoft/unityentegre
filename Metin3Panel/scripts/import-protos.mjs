@@ -73,11 +73,11 @@ const mobIndex = Object.fromEntries(mobHeaders.map((name, index) => [name, index
 const mobs = mobRows.slice(1).flatMap((row) => {
   const vnum = number(row[mobIndex.Vnum], -1);
   const protoType = String(row[mobIndex.Type] ?? '').trim().toUpperCase();
-  if (vnum < 0 || !['MONSTER', 'STONE', 'NPC', 'PET'].includes(protoType)) return [];
+  if (vnum < 0 || !['MONSTER', 'STONE', 'NPC', 'PET', 'WARP', 'GOTO', 'DOOR'].includes(protoType)) return [];
   return [{
     vnum,
     name: mobNames.get(vnum) ?? String(row[mobIndex.Name] ?? `VNUM ${vnum}`).trim(),
-    kind: protoType === 'STONE' ? 'metin' : protoType === 'NPC' ? 'npc' : 'mob',
+    kind: protoType === 'STONE' ? 'metin' : ['NPC', 'WARP', 'GOTO', 'DOOR'].includes(protoType) ? 'npc' : 'mob',
     protoType,
     rank: String(row[mobIndex.Rank] ?? 'PAWN').trim(),
     battleType: String(row[mobIndex.BattleType] ?? '').trim(),

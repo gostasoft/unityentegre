@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
       move_speed: override?.move_speed ?? proto.moveSpeed, folder: proto.folder, size: proto.size,
     };
   }).filter(Boolean);
-  const revision = `${worldPlacements.length}:${entities.length}:${items.length}:${JSON.stringify(settings)}`;
+  const placementRevision = (worldPlacements as Array<Record<string, unknown>>).reduce((latest, row) => String(row.updated_at ?? '') > latest ? String(row.updated_at) : latest, '');
+  const revision = `${worldPlacements.length}:${placementRevision}:${entities.length}:${items.length}:${JSON.stringify(settings)}`;
   return NextResponse.json({ version: revision, settings, maps, entities, runtimeEntities, items, spawns, worldPlacements, groups: requestedGroups, drops, shops, shopItems, events, sanctions:[...legacySanctions,...playerSanctions], warps, expLevels, biology, biologyRewards, chests, chestItems, fishing, fishingEvents });
 }
