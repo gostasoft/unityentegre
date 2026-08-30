@@ -247,7 +247,7 @@ namespace Metin2Dev.Gameplay
             {
                 killer.GainExperience(experience);
                 killer.AddGold(Mathf.Max(1, Mathf.RoundToInt(level * UnityEngine.Random.Range(2, 6) * Metin3PanelRuntime.YangRate)));
-                Metin2InventoryService.RollDrops(entityId, vnum, killer.Level);
+                Metin2InventoryService.RollDrops(entityId, vnum, killer.Level, transform.position);
             }
             Metin2QuestService.ReportKill(vnum);
             Metin2ChatService.Append(Metin2ChatChannel.Info, $"{displayName} yenildi. +{experience} EXP");

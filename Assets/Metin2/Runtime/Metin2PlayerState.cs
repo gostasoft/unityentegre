@@ -50,9 +50,9 @@ namespace Metin2Dev.Gameplay
         public int Strength => strength;
         public int Dexterity => dexterity;
         public int Gold => gold;
-        public int AttackMin => Mathf.Max(1, level * 2 + strength * 3 + dexterity);
-        public int AttackMax => Mathf.Max(AttackMin + 1, level * 3 + strength * 4 + dexterity * 2);
-        public int Defense => Mathf.Max(0, level + vitality * 2 + dexterity / 2);
+        public int AttackMin => Mathf.Max(1, level * 2 + strength * 3 + dexterity + Metin2InventoryService.AttackMinBonus);
+        public int AttackMax => Mathf.Max(AttackMin + 1, level * 3 + strength * 4 + dexterity * 2 + Metin2InventoryService.AttackMaxBonus);
+        public int Defense => Mathf.Max(0, level + vitality * 2 + dexterity / 2 + Metin2InventoryService.DefenseBonus);
         public bool IsDead => dead;
 
         void Awake()
@@ -211,6 +211,11 @@ namespace Metin2Dev.Gameplay
         {
             if (dead || amount <= 0) return;
             currentSp = Mathf.Min(maxSp, currentSp + amount);
+            NotifyChanged();
+        }
+
+        public void NotifyEquipmentChanged()
+        {
             NotifyChanged();
         }
 

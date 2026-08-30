@@ -149,5 +149,15 @@ namespace Metin2Dev.Gameplay
             contacts.Add(new Metin2MessengerContact { name = name, online = false });
             Changed?.Invoke();
         }
+
+        public static bool Remove(string name)
+        {
+            name = (name ?? string.Empty).Trim();
+            int index = contacts.FindIndex(item => string.Equals(item.name, name, StringComparison.OrdinalIgnoreCase));
+            if (index < 0) return false;
+            contacts.RemoveAt(index);
+            Changed?.Invoke();
+            return true;
+        }
     }
 }

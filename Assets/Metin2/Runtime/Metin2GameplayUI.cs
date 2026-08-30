@@ -22,7 +22,9 @@ namespace Metin2Dev.Gameplay
         readonly List<Image> experiencePoints = new List<Image>();
         readonly Image[] quickSlotHighlights = new Image[8];
         readonly Text[] inventorySlotLabels = new Text[45];
+        readonly RawImage[] inventorySlotIcons = new RawImage[45];
         readonly Metin2QuickSlotDragSource[] inventoryDragSources = new Metin2QuickSlotDragSource[45];
+        readonly Dictionary<Metin2EquipmentSlot, RawImage> equipmentIcons = new Dictionary<Metin2EquipmentSlot, RawImage>();
         Canvas canvas;
         Font font;
         RectTransform hud;
@@ -474,8 +476,9 @@ namespace Metin2Dev.Gameplay
                 new Vector2(1f, 0.5f), new Vector2(-200f, 0f), new Vector2(176f, 565f));
             BuildBoard(inventoryWindow);
             CreateTitle(inventoryWindow, "ENVANTER", 8f, 7f, 161f, inventoryWindow);
-            CreateAtlasTop(inventoryWindow, "Equipment Base", Texture("windows"), new Rect(0, 152, 156, 188),
+            RawImage equipmentBase = CreateAtlasTop(inventoryWindow, "Equipment Base", Texture("windows"), new Rect(0, 152, 156, 188),
                 new Vector2(10f, -33f), new Vector2(156f, 188f));
+            BuildEquipmentIcons(equipmentBase.rectTransform);
 
             CreateAtlasButton(inventoryWindow, "Equipment I", Texture("windows"), new Rect(324, 227, 32, 19),
                 new Vector2(96f, -194f), new Vector2(32f, 19f), () => { });
@@ -498,14 +501,18 @@ namespace Metin2Dev.Gameplay
                     RawImage itemSlot = CreateAtlasTop(inventoryWindow, "Item Slot " + itemIndex, Texture("public"),
                         new Rect(0, 348, 32, 32), new Vector2(8f + x * 32f, -246f - y * 32f), new Vector2(32f, 32f));
                     itemSlot.raycastTarget = true;
+                    RawImage itemIcon = CreateAtlasTop(itemSlot.rectTransform, "Original Item Icon", null,
+                        new Rect(0f, 0f, 1f, 1f), new Vector2(2f, -2f), new Vector2(28f, 28f));
+                    itemIcon.color = Color.clear;
+                    inventorySlotIcons[itemIndex] = itemIcon;
                     inventoryDragSources[itemIndex] = itemSlot.gameObject.AddComponent<Metin2QuickSlotDragSource>();
                     inventoryDragSources[itemIndex].Clear();
                     int capturedSlot = itemIndex;
                     Button useButton = itemSlot.gameObject.AddComponent<Button>();
                     useButton.targetGraphic = itemSlot;
                     useButton.onClick.AddListener(() => Metin2InventoryService.Use(capturedSlot));
-                    Text label = CreateText(itemSlot.rectTransform, string.Empty, 7, TextAnchor.MiddleCenter,
-                        Vector2.zero, new Vector2(32f, 32f), new Color(1f, 0.91f, 0.63f));
+                    Text label = CreateText(itemSlot.rectTransform, string.Empty, 9, TextAnchor.LowerRight,
+                        new Vector2(1f, -1f), new Vector2(29f, 29f), Color.white, true);
                     label.name = "Item Label";
                     label.raycastTarget = false;
                     inventorySlotLabels[itemIndex] = label;
@@ -526,23 +533,63 @@ namespace Metin2Dev.Gameplay
         void RefreshInventorySlots()
         {
             if (inventorySlotLabels[0] == null) return;
-            Rect iconUv = new Rect(0f, 348f, 32f, 32f);
             for (int index = 0; index < inventorySlotLabels.Length; index++)
             {
                 Metin2InventoryEntry entry = Metin2InventoryService.Get(index);
                 Text label = inventorySlotLabels[index];
+                RawImage iconView = inventorySlotIcons[index];
                 if (entry == null)
                 {
                     label.text = string.Empty;
+                    if (iconView != null) { iconView.texture = null; iconView.color = Color.clear; }
                     inventoryDragSources[index]?.Clear();
                     continue;
                 }
-                string shortName = entry.name ?? ("İtem " + entry.vnum);
-                if (shortName.Length > 9) shortName = shortName.Substring(0, 8) + "…";
-                label.text = shortName + (entry.count > 1 ? "\nx" + entry.count : string.Empty);
+                Texture2D icon = Metin2ItemDatabase.GetIcon(entry.vnum);
+                if (iconView != null) { iconView.texture = icon; iconView.uvRect = new Rect(0f, 0f, 1f, 1f); iconView.color = icon != null ? Color.white : Color.clear; }
+                label.text = entry.count > 1 ? entry.count.ToString() : string.Empty;
                 int capturedSlot = index;
-                inventoryDragSources[index]?.ConfigureItem(index, entry.name, Texture("public"), iconUv,
+                inventoryDragSources[index]?.ConfigureItem(index, entry.name, icon, new Rect(0f, 0f, 1f, 1f),
                     () => Metin2InventoryService.Use(capturedSlot));
+            }
+            RefreshEquipmentIcons();
+        }
+
+        void BuildEquipmentIcons(Transform equipmentBase)
+        {
+            AddEquipmentIcon(equipmentBase, Metin2EquipmentSlot.Body, 42f, -40f, 32f, 64f);
+            AddEquipmentIcon(equipmentBase, Metin2EquipmentSlot.Head, 42f, -5f, 32f, 32f);
+            AddEquipmentIcon(equipmentBase, Metin2EquipmentSlot.Shoes, 42f, -148f, 32f, 32f);
+            AddEquipmentIcon(equipmentBase, Metin2EquipmentSlot.Wrist, 78f, -70f, 32f, 32f);
+            AddEquipmentIcon(equipmentBase, Metin2EquipmentSlot.Weapon, 6f, -6f, 32f, 96f);
+            AddEquipmentIcon(equipmentBase, Metin2EquipmentSlot.Neck, 117f, -87f, 32f, 32f);
+            AddEquipmentIcon(equipmentBase, Metin2EquipmentSlot.Ear, 117f, -55f, 32f, 32f);
+            AddEquipmentIcon(equipmentBase, Metin2EquipmentSlot.Arrow, 117f, -4f, 32f, 32f);
+            AddEquipmentIcon(equipmentBase, Metin2EquipmentSlot.Shield, 78f, -38f, 32f, 32f);
+        }
+
+        void AddEquipmentIcon(Transform parent, Metin2EquipmentSlot slot, float x, float y, float width, float height)
+        {
+            RawImage icon = CreateAtlasTop(parent, slot + " Equipped Icon", null, new Rect(0f, 0f, 1f, 1f),
+                new Vector2(x, y), new Vector2(width, height));
+            icon.color = Color.clear;
+            icon.raycastTarget = true;
+            Button button = icon.gameObject.AddComponent<Button>();
+            button.targetGraphic = icon;
+            button.transition = Selectable.Transition.ColorTint;
+            button.onClick.AddListener(() => Metin2InventoryService.Unequip(slot));
+            equipmentIcons[slot] = icon;
+        }
+
+        void RefreshEquipmentIcons()
+        {
+            foreach (KeyValuePair<Metin2EquipmentSlot, RawImage> pair in equipmentIcons)
+            {
+                Metin2InventoryEntry entry = Metin2InventoryService.GetEquipped(pair.Key);
+                Texture2D icon = entry != null ? Metin2ItemDatabase.GetIcon(entry.vnum) : null;
+                pair.Value.texture = icon;
+                pair.Value.uvRect = new Rect(0f, 0f, 1f, 1f);
+                pair.Value.color = icon != null ? Color.white : Color.clear;
             }
         }
 
