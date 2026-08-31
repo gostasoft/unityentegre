@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
     };
   }).filter(Boolean);
   const placementRevision = (worldPlacements as Array<Record<string, unknown>>).reduce((latest, row) => String(row.updated_at ?? '') > latest ? String(row.updated_at) : latest, '');
-  const revision = `${worldPlacements.length}:${placementRevision}:${entities.length}:${items.length}:${JSON.stringify(settings)}`;
+  const groupRevision = JSON.stringify(requestedGroups.map((group) => [group?.vnum, group?.members]));
+  const revision = `${worldPlacements.length}:${placementRevision}:${entities.length}:${items.length}:${groupRevision}:${JSON.stringify(settings)}`;
   return NextResponse.json({ version: revision, settings, maps, entities, runtimeEntities, items, spawns, worldPlacements, groups: requestedGroups, drops, shops, shopItems, events, sanctions:[...legacySanctions,...playerSanctions], warps, expLevels, biology, biologyRewards, chests, chestItems, fishing, fishingEvents });
 }

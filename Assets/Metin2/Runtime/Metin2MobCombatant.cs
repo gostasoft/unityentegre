@@ -33,6 +33,7 @@ namespace Metin2Dev.Gameplay
         Collider[] colliders;
         Renderer[] renderers;
         Vector3 home;
+        float groundOffset;
         float nextAttackAt;
         bool dead;
         bool configured;
@@ -50,6 +51,8 @@ namespace Metin2Dev.Gameplay
         void Awake()
         {
             home = transform.position;
+            if (Metin2WorldSurface.TrySample(transform.position, 89f, out Vector3 surface))
+                groundOffset = transform.position.y - surface.y;
             animationRuntime = GetComponent("MobAnimationRuntime");
             colliders = GetComponentsInChildren<Collider>(true);
             renderers = GetComponentsInChildren<Renderer>(true);
@@ -164,9 +167,15 @@ namespace Metin2Dev.Gameplay
         {
             if (direction.sqrMagnitude < 0.001f) return;
             transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(direction), 360f * Time.deltaTime);
-            transform.position += direction * moveSpeed * Time.deltaTime;
+            Vector3 candidate = transform.position + direction * moveSpeed * Time.deltaTime;
+            if (!Metin2WorldSurface.TrySample(candidate, 32f, out Vector3 grounded))
+            {
+                Invoke(animationRuntime, "SetMoveAmount", 0f);
+                return;
+            }
+            grounded.y += groundOffset;
+            transform.position = grounded;
             Invoke(animationRuntime, "SetMoveAmount", 1f);
-            GroundToTerrain();
         }
 
         void ReturnHome()
@@ -175,21 +184,6 @@ namespace Metin2Dev.Gameplay
             delta.y = 0f;
             if (delta.sqrMagnitude > 0.1f) Move(delta.normalized);
             else Invoke(animationRuntime, "SetMoveAmount", 0f);
-        }
-
-        void GroundToTerrain()
-        {
-            Vector3 origin = transform.position + Vector3.up * 8f;
-            RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.down, 30f, ~0, QueryTriggerInteraction.Ignore);
-            System.Array.Sort(hits, (left, right) => left.distance.CompareTo(right.distance));
-            foreach (RaycastHit hit in hits)
-            {
-                if (hit.transform == transform || hit.transform.IsChildOf(transform)) continue;
-                Vector3 point = transform.position;
-                point.y = hit.point.y;
-                transform.position = point;
-                return;
-            }
         }
 
         IEnumerator DealDamageAfterDelay(Metin2PlayerState victim, float delay)

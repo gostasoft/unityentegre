@@ -2,9 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
+using Metin2Dev.Gameplay;
 using Metin3Dev.Panel;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEditor.Callbacks;
 using UnityEngine;
 
@@ -14,13 +17,27 @@ namespace Metin3Dev.Panel.Editor
     {
         const string AssetPath = "Assets/Metin3Panel/Resources/Metin3EntityPrefabCatalog.asset";
         const string GeneratedRoot = "Assets/Metin2/EntitiesGenerated";
+        const string RuntimePrefabRoot = "Assets/Metin3Panel/Resources/EntityPrefabs";
+        const string ControllerRoot = GeneratedRoot + "/Controllers";
+        const string ClipRoot = GeneratedRoot + "/AnimationClips";
+        const string AnimationReportPath = GeneratedRoot + "/MobAnimationImportReport.txt";
+        const int BuilderVersion = 7;
+        static bool buildScheduled;
+        static readonly List<string> animationReport = new List<string>();
 
         [InitializeOnLoadMethod]
         static void BuildWhenMissing()
         {
             Metin3EntityPrefabCatalog existing = AssetDatabase.LoadAssetAtPath<Metin3EntityPrefabCatalog>(AssetPath);
-            if (existing != null && existing.Resolve("stray_dog") != null && existing.Resolve("fire_dragon") != null && existing.Resolve("arms") != null && existing.Resolve("metinstone_05") != null) return;
-            EditorApplication.delayCall += ImportOriginalModels;
+            if (existing != null && existing.builderVersion == BuilderVersion && existing.Resolve("stray_dog") != null &&
+                existing.Resolve("fire_dragon") != null && existing.Resolve("arms") != null && existing.Resolve("metinstone_05") != null) return;
+            if (buildScheduled) return;
+            buildScheduled = true;
+            EditorApplication.delayCall += () =>
+            {
+                buildScheduled = false;
+                ImportOriginalModels();
+            };
         }
 
         [DidReloadScripts]
@@ -53,6 +70,7 @@ namespace Metin3Dev.Panel.Editor
                 if (!string.IsNullOrWhiteSpace(parent) && string.Equals(file, parent, StringComparison.OrdinalIgnoreCase)) Add(candidates, parent, asset);
             }
             catalog.entries = candidates.OrderBy(pair => pair.Key).Select(pair => new Metin3EntityPrefabCatalog.Entry { key = pair.Key, prefab = pair.Value }).ToArray();
+            catalog.builderVersion = 0;
             EditorUtility.SetDirty(catalog);
             AssetDatabase.SaveAssets();
             Debug.Log($"[Metin3 Panel] Runtime mob kataloğu hazır: {catalog.entries.Length} model eşleşmesi.");
@@ -83,7 +101,11 @@ namespace Metin3Dev.Panel.Editor
 
         static void BuildExactCatalog()
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(AssetPath) ?? "Assets/Metin3Panel/Resources");
+            animationReport.Clear();
+            EnsureAssetFolder("Assets/Metin3Panel/Resources");
+            EnsureAssetFolder(GeneratedRoot);
+            EnsureAssetFolder(ControllerRoot);
+            EnsureAssetFolder(ClipRoot);
             Metin3EntityPrefabCatalog catalog = AssetDatabase.LoadAssetAtPath<Metin3EntityPrefabCatalog>(AssetPath);
             if (catalog == null)
             {
@@ -111,48 +133,236 @@ namespace Metin3Dev.Panel.Editor
                 GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(ToAssetPath(modelPath));
                 if (model == null) continue;
                 Match skinMatch = Regex.Match(script, "TargetSkin\\s+\\\"(?<path>[^\\\"]+\\.(?:dds|png|tga))\\\"", RegexOptions.IgnoreCase);
-                if (skinMatch.Success)
-                {
-                    string texturePath = FindTexture(directory, Path.GetFileNameWithoutExtension(skinMatch.Groups["path"].Value.Replace('\\', '/')));
-                    if (!string.IsNullOrEmpty(texturePath)) model = CreateSkinnedPrefab(key, model, texturePath);
-                }
-                Add(candidates, key, model);
+                string texturePath = skinMatch.Success
+                    ? FindTexture(directory, Path.GetFileNameWithoutExtension(skinMatch.Groups["path"].Value.Replace('\\', '/')))
+                    : string.Empty;
+                model = CreateEntityPrefab(key, model, texturePath, directory);
+                string normalized = Metin3EntityPrefabCatalog.Normalize(key);
+                if (!string.IsNullOrEmpty(normalized) && model != null) candidates[normalized] = model;
             }
             catalog.entries = candidates.OrderBy(pair => pair.Key).Select(pair => new Metin3EntityPrefabCatalog.Entry { key = pair.Key, prefab = pair.Value }).ToArray();
+            catalog.builderVersion = BuilderVersion;
             EditorUtility.SetDirty(catalog);
+            File.WriteAllText(AnimationReportPath, BuildAnimationReport(), Encoding.UTF8);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[Metin3 Panel] Orijinal VNUM model kataloğu hazır: {catalog.entries.Length} gerçek mob/NPC/metin modeli.");
+            AssetDatabase.ImportAsset(AnimationReportPath, ImportAssetOptions.ForceUpdate);
+            Debug.Log($"[Metin3 Panel] Orijinal VNUM model kataloğu hazır: {catalog.entries.Length} gerçek mob/NPC/metin modeli. Animasyon raporu: {AnimationReportPath}");
         }
 
-        static GameObject CreateSkinnedPrefab(string key, GameObject source, string texturePath)
+        static GameObject CreateEntityPrefab(string key, GameObject source, string texturePath, string sourceDirectory)
         {
-            string prefabFolder = GeneratedRoot + "/Prefabs";
+            string prefabFolder = RuntimePrefabRoot;
             string materialFolder = GeneratedRoot + "/Materials";
-            Directory.CreateDirectory(prefabFolder);
-            Directory.CreateDirectory(materialFolder);
+            EnsureAssetFolder(prefabFolder);
+            EnsureAssetFolder(materialFolder);
             GameObject instance = PrefabUtility.InstantiatePrefab(source) as GameObject;
             if (instance == null) instance = UnityEngine.Object.Instantiate(source);
-            Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(ToAssetPath(texturePath));
+            Texture2D texture = string.IsNullOrEmpty(texturePath) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>(ToAssetPath(texturePath));
+            Material overrideMaterial = null;
+            if (texture != null)
+            {
+                Material sourceMaterial = instance.GetComponentsInChildren<Renderer>(true)
+                    .SelectMany(renderer => renderer.sharedMaterials).FirstOrDefault(material => material != null);
+                overrideMaterial = sourceMaterial != null ? new Material(sourceMaterial) : new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                overrideMaterial.name = key + "_skin";
+                overrideMaterial.mainTexture = texture;
+                string materialPath = $"{materialFolder}/{key}_skin.mat";
+                AssetDatabase.DeleteAsset(materialPath);
+                AssetDatabase.CreateAsset(overrideMaterial, materialPath);
+            }
             foreach (Renderer renderer in instance.GetComponentsInChildren<Renderer>(true))
             {
+                if (overrideMaterial == null) continue;
                 Material[] materials = renderer.sharedMaterials;
                 for (int index = 0; index < materials.Length; index++)
-                {
-                    Material material = materials[index] != null ? new Material(materials[index]) : new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                    material.name = key + "_" + index;
-                    material.mainTexture = texture;
-                    string materialPath = $"{materialFolder}/{key}_{renderer.name}_{index}.mat";
-                    AssetDatabase.DeleteAsset(materialPath);
-                    AssetDatabase.CreateAsset(material, materialPath);
-                    materials[index] = material;
-                }
+                    materials[index] = overrideMaterial;
                 renderer.sharedMaterials = materials;
+            }
+            RuntimeAnimatorController controller = CreateMotionController(key, sourceDirectory);
+            if (controller != null)
+            {
+                Animator animator = instance.GetComponent<Animator>() ?? instance.AddComponent<Animator>();
+                animator.runtimeAnimatorController = controller;
+                animator.applyRootMotion = false;
+                animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+                if (instance.GetComponent<MobAnimationRuntime>() == null) instance.AddComponent<MobAnimationRuntime>();
             }
             string prefabPath = $"{prefabFolder}/{key}.prefab";
             AssetDatabase.DeleteAsset(prefabPath);
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(instance, prefabPath);
             UnityEngine.Object.DestroyImmediate(instance);
             return prefab;
+        }
+
+        static RuntimeAnimatorController CreateMotionController(string key, string sourceDirectory)
+        {
+            string motlist = Path.Combine(sourceDirectory, "motlist.txt");
+            if (!File.Exists(motlist))
+            {
+                animationReport.Add($"{key}: motlist.txt yok (statik model)");
+                return null;
+            }
+            Dictionary<string, string> motionFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, int> stateOccurrences = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (string raw in File.ReadLines(motlist))
+            {
+                string[] columns = raw.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+                if (columns.Length < 3) continue;
+                string state = StateForMotion(columns[1]);
+                if (state == null) continue;
+                if (stateOccurrences.TryGetValue(state, out int occurrence))
+                {
+                    occurrence++;
+                    stateOccurrences[state] = occurrence;
+                    state += occurrence;
+                }
+                else stateOccurrences[state] = 0;
+                string motionFbx = Path.Combine(sourceDirectory, Path.ChangeExtension(columns[2], ".fbx"));
+                if (File.Exists(motionFbx)) motionFiles.Add(state, ToAssetPath(motionFbx));
+            }
+            if (!motionFiles.ContainsKey("Wait"))
+            {
+                animationReport.Add($"{key}: WAIT hareketi veya FBX karşılığı yok");
+                return null;
+            }
+
+            string safeKey = Metin3EntityPrefabCatalog.Normalize(key);
+            string clipFolder = ClipRoot + "/" + safeKey;
+            if (AssetDatabase.IsValidFolder(clipFolder)) AssetDatabase.DeleteAsset(clipFolder);
+            EnsureAssetFolder(clipFolder);
+            string controllerPath = ControllerRoot + "/" + safeKey + ".controller";
+            AssetDatabase.DeleteAsset(controllerPath);
+            AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(controllerPath);
+            AnimatorStateMachine machine = controller.layers[0].stateMachine;
+            Dictionary<string, AnimatorState> states = new Dictionary<string, AnimatorState>(StringComparer.OrdinalIgnoreCase);
+            List<string> missingClips = new List<string>();
+            foreach (KeyValuePair<string, string> pair in motionFiles)
+            {
+                AnimationClip sourceClip = LoadMotionClip(pair.Value);
+                if (sourceClip == null)
+                {
+                    missingClips.Add(pair.Key + "=" + Path.GetFileName(pair.Value));
+                    continue;
+                }
+                AnimationClip clip = UnityEngine.Object.Instantiate(sourceClip);
+                clip.name = pair.Key;
+                clip.legacy = false;
+                clip.wrapMode = IsLoopState(pair.Key) ? WrapMode.Loop : WrapMode.Once;
+                AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
+                settings.loopTime = IsLoopState(pair.Key);
+                settings.loopBlend = IsLoopState(pair.Key);
+                AnimationUtility.SetAnimationClipSettings(clip, settings);
+                string clipPath = clipFolder + "/" + pair.Key + ".anim";
+                AssetDatabase.CreateAsset(clip, clipPath);
+                AnimatorState state = machine.AddState(pair.Key);
+                state.motion = clip;
+                states[pair.Key] = state;
+            }
+            if (!states.TryGetValue("Wait", out AnimatorState wait))
+            {
+                animationReport.Add($"{key}: FBX içinden WAIT AnimationClip okunamadı");
+                AssetDatabase.DeleteAsset(controllerPath);
+                return null;
+            }
+            machine.defaultState = wait;
+            foreach (KeyValuePair<string, AnimatorState> pair in states)
+            {
+                if (IsLoopState(pair.Key) || pair.Key.StartsWith("Dead", StringComparison.OrdinalIgnoreCase)) continue;
+                AddReturnTransition(pair.Value, wait);
+            }
+            animationReport.Add($"{key}: {states.Count}/{motionFiles.Count} klip etkin" +
+                                (missingClips.Count > 0 ? " | eksik: " + string.Join(", ", missingClips) : string.Empty));
+            return controller;
+        }
+
+        static AnimationClip LoadMotionClip(string assetPath)
+        {
+            AnimationClip clip = FindMotionClip(assetPath);
+            if (clip != null) return clip;
+
+            ModelImporter importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
+            if (importer == null) return null;
+            bool changed = !importer.importAnimation || importer.animationType != ModelImporterAnimationType.Generic;
+            importer.importAnimation = true;
+            importer.animationType = ModelImporterAnimationType.Generic;
+            ModelImporterClipAnimation[] defaults = importer.defaultClipAnimations;
+            if (defaults != null && defaults.Length > 0 && (importer.clipAnimations == null || importer.clipAnimations.Length == 0))
+            {
+                importer.clipAnimations = defaults;
+                changed = true;
+            }
+            if (changed) importer.SaveAndReimport();
+            clip = FindMotionClip(assetPath);
+            if (clip != null) return clip;
+
+            // Some Granny-exported motion FBX files expose their take only to the
+            // legacy importer. The copied .anim is converted back to Mecanim above.
+            importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
+            if (importer == null) return null;
+            importer.importAnimation = true;
+            importer.animationType = ModelImporterAnimationType.Legacy;
+            importer.SaveAndReimport();
+            return FindMotionClip(assetPath);
+        }
+
+        static AnimationClip FindMotionClip(string assetPath)
+        {
+            AnimationClip clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(assetPath);
+            if (clip != null && !clip.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase)) return clip;
+            clip = AssetDatabase.LoadAllAssetRepresentationsAtPath(assetPath).OfType<AnimationClip>()
+                .FirstOrDefault(candidate => !candidate.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase));
+            if (clip != null) return clip;
+            return AssetDatabase.LoadAllAssetsAtPath(assetPath).OfType<AnimationClip>()
+                .FirstOrDefault(candidate => !candidate.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase));
+        }
+
+        static void AddReturnTransition(AnimatorState state, AnimatorState wait)
+        {
+            AnimatorStateTransition transition = state.AddTransition(wait);
+            transition.hasExitTime = true;
+            transition.exitTime = 0.96f;
+            transition.hasFixedDuration = true;
+            transition.duration = 0.08f;
+        }
+
+        static string StateForMotion(string motion)
+        {
+            motion = (motion ?? string.Empty).Trim().ToUpperInvariant();
+            if (motion.StartsWith("WAIT")) return "Wait";
+            if (motion.StartsWith("WALK")) return "Walk";
+            if (motion.StartsWith("RUN")) return "Run";
+            if (motion.StartsWith("NORMAL_ATTACK") || motion.StartsWith("ATTACK")) return "Attack";
+            if (motion.Contains("DAMAGE")) return "Hit";
+            if (motion.EndsWith("DEAD") || motion.Contains("DEATH")) return "Dead";
+            string[] words = motion.Split(new[] { '_', '-', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) return null;
+            return string.Concat(words.Select(word => char.ToUpperInvariant(word[0]) + word.Substring(1).ToLowerInvariant()));
+        }
+
+        static bool IsLoopState(string state) => state.StartsWith("Wait", StringComparison.OrdinalIgnoreCase) ||
+                                                 state.StartsWith("Walk", StringComparison.OrdinalIgnoreCase) ||
+                                                 state.StartsWith("Run", StringComparison.OrdinalIgnoreCase);
+
+        static string BuildAnimationReport()
+        {
+            StringBuilder report = new StringBuilder();
+            report.AppendLine("Metin3 original mob/NPC animation import report");
+            report.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            report.AppendLine();
+            foreach (string line in animationReport.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)) report.AppendLine(line);
+            return report.ToString();
+        }
+
+        static void EnsureAssetFolder(string path)
+        {
+            string[] parts = path.Split('/');
+            string current = parts[0];
+            for (int index = 1; index < parts.Length; index++)
+            {
+                string next = current + "/" + parts[index];
+                if (!AssetDatabase.IsValidFolder(next)) AssetDatabase.CreateFolder(current, parts[index]);
+                current = next;
+            }
         }
 
         static string FindTexture(string directory, string name)

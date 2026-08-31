@@ -596,8 +596,13 @@ namespace Metin2Dev
             mesh.SetVertices(vertices); mesh.SetTriangles(triangles, 0); mesh.SetUVs(0, uv); mesh.RecalculateNormals(); mesh.RecalculateBounds();
             string meshPath = Output + "/Maps/" + map.Name + "/" + mesh.name + ".asset";
             if (AssetDatabase.LoadAssetAtPath<Mesh>(meshPath) != null) AssetDatabase.DeleteAsset(meshPath); AssetDatabase.CreateAsset(mesh, meshPath);
-            GameObject go = new GameObject(mesh.name, typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(parent.transform, false); go.transform.localPosition = new Vector3(tile.x * tileSize, 0f, tile.y * tileSize);
-            go.GetComponent<MeshFilter>().sharedMesh = mesh; go.GetComponent<MeshRenderer>().sharedMaterial = GetWaterMaterial(); report.WaterTiles++;
+            GameObject go = new GameObject(mesh.name, typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider)); go.transform.SetParent(parent.transform, false); go.transform.localPosition = new Vector3(tile.x * tileSize, 0f, tile.y * tileSize);
+            go.GetComponent<MeshFilter>().sharedMesh = mesh;
+            go.GetComponent<MeshRenderer>().sharedMaterial = GetWaterMaterial();
+            MeshCollider waterCollider = go.GetComponent<MeshCollider>();
+            waterCollider.sharedMesh = mesh;
+            waterCollider.convex = false;
+            report.WaterTiles++;
         }
 
         static bool WaterIsAboveTerrain(int waterHeight, int x, int z, byte[] heightRaw, int sourceSize)
