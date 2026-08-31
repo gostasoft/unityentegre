@@ -23,16 +23,26 @@ namespace Metin2Dev.Gameplay
 
         void Awake()
         {
-            animator = GetComponent<Animator>() ?? GetComponentInChildren<Animator>(true);
+            Animator[] candidates = GetComponentsInChildren<Animator>(true);
+            foreach (Animator candidate in candidates)
+                if (candidate != null && candidate.runtimeAnimatorController != null) { animator = candidate; break; }
+            if (animator == null) animator = GetComponent<Animator>() ?? GetComponentInChildren<Animator>(true);
             if (animator == null) return;
             animator.applyRootMotion = false;
-            animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+            // Hundreds of entities can leave and re-enter the camera. Always update
+            // their source pose so they never return frozen in their bind pose.
+            animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            if (animator.runtimeAnimatorController != null)
+            {
+                animator.Rebind();
+                animator.Update(0f);
+            }
             Play(WaitState, 0f, true);
         }
 
         public void SetMoveAmount(float amount)
         {
-            if (dead || animator == null) return;
+            if (dead || !Ready()) return;
             int state = WaitState;
             if (amount > 0.01f)
             {
@@ -76,7 +86,7 @@ namespace Metin2Dev.Gameplay
 
         int Variation(string baseName, int fallback)
         {
-            if (animator == null) return fallback;
+            if (!Ready()) return fallback;
             int start = actionSequence++;
             for (int offset = 0; offset < 8; offset++)
             {
@@ -86,6 +96,11 @@ namespace Metin2Dev.Gameplay
                 if (animator.HasState(0, state)) return state;
             }
             return fallback;
+        }
+
+        bool Ready()
+        {
+            return animator != null && animator.isActiveAndEnabled && animator.runtimeAnimatorController != null;
         }
     }
 }

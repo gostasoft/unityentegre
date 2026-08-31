@@ -19,6 +19,8 @@ namespace Metin2Dev.Gameplay
         const float GroundOffset = 0.02f;
         const float GroundProbeHeight = 1f;
         const float GroundProbeDistance = 2f;
+        const float AutoTargetAcquireRange = 12f;
+        const float CombatStopRange = 2.8f;
 
         [Header("Movement Speed (persisted defaults are in Metin2PlayerMovementSettings)")]
         [Min(0f)] public float walkSpeedMultiplier = 2f;
@@ -239,7 +241,7 @@ namespace Metin2Dev.Gameplay
                 else
                 {
                     Vector3 toTarget = Vector3.ProjectOnPlane(combatTarget.transform.position - transform.position, Vector3.up);
-                    float stopRange = 2.8f;
+                    float stopRange = CombatStopRange;
                     if (toTarget.magnitude > stopRange)
                     {
                         direction = toTarget;
@@ -339,6 +341,24 @@ namespace Metin2Dev.Gameplay
 
         void QueueAttack()
         {
+            if (combatTarget == null || combatTarget.IsDead)
+            {
+                Metin2MobCombatant nearest = Metin2MobCombatant.FindNearestAttackable(transform.position, AutoTargetAcquireRange);
+                if (nearest != null) SetCombatTarget(nearest);
+            }
+            if (combatTarget != null)
+            {
+                Vector3 toTarget = Vector3.ProjectOnPlane(combatTarget.transform.position - transform.position, Vector3.up);
+                if (toTarget.magnitude > CombatStopRange)
+                {
+                    clickMoveDestination = combatTarget.transform.position;
+                    clickMoveActive = true;
+                    runInput = true;
+                    return;
+                }
+                if (toTarget.sqrMagnitude > 0.001f)
+                    transform.rotation = Quaternion.LookRotation(toTarget.normalized, Vector3.up);
+            }
             if (!IsActionPlaying())
             {
                 comboIndex = 1;
@@ -379,6 +399,7 @@ namespace Metin2Dev.Gameplay
 
         void PlayAnimatorState(Metin2MotionRecord motion, float fade)
         {
+            if (animator == null || animator.runtimeAnimatorController == null) return;
             int state = Animator.StringToHash(StateName(motion));
             if (!animator.HasState(0, state))
             {

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 using Metin3Dev.Panel;
@@ -9,6 +10,7 @@ namespace Metin2Dev.Gameplay
     public sealed class Metin2MobCombatant : MonoBehaviour, IMetin2Damageable
     {
         public static event System.Action<Metin2MobCombatant> SelectedChanged;
+        static readonly HashSet<Metin2MobCombatant> Active = new HashSet<Metin2MobCombatant>();
 
         [SerializeField] int vnum;
         [SerializeField] string displayName = "Mob";
@@ -37,6 +39,9 @@ namespace Metin2Dev.Gameplay
         float nextAttackAt;
         bool dead;
         bool configured;
+        bool groundReady;
+        Vector2 lastGroundedXZ;
+        float lastGroundedRootY;
 
         public int Vnum => vnum;
         public string DisplayName => displayName;
@@ -50,18 +55,46 @@ namespace Metin2Dev.Gameplay
 
         void Awake()
         {
-            home = transform.position;
-            if (Metin2WorldSurface.TrySample(transform.position, 89f, out Vector3 surface))
-                groundOffset = transform.position.y - surface.y;
             animationRuntime = GetComponent("MobAnimationRuntime");
             colliders = GetComponentsInChildren<Collider>(true);
             renderers = GetComponentsInChildren<Renderer>(true);
         }
 
+        void OnEnable() { Active.Add(this); }
+        void OnDisable() { Active.Remove(this); }
+
         void Start()
         {
             if (!configured) ConfigureFromComponents();
             EnsureCollider();
+            CaptureGroundOffset();
+            home = transform.position;
+        }
+
+        void LateUpdate()
+        {
+            if (!groundReady || IsDead) return;
+            Vector2 currentXZ = new Vector2(transform.position.x, transform.position.z);
+            if ((currentXZ - lastGroundedXZ).sqrMagnitude < 0.000001f && Mathf.Abs(transform.position.y - lastGroundedRootY) < 0.001f) return;
+            SnapToGround();
+        }
+
+        public static Metin2MobCombatant FindNearestAttackable(Vector3 origin, float maximumDistance)
+        {
+            Metin2MobCombatant nearest = null;
+            float best = maximumDistance * maximumDistance;
+            Active.RemoveWhere(item => item == null);
+            foreach (Metin2MobCombatant item in Active)
+            {
+                if (item == null || !item.isActiveAndEnabled || !item.IsAttackable) continue;
+                Vector3 delta = item.transform.position - origin;
+                delta.y = 0f;
+                float distance = delta.sqrMagnitude;
+                if (distance >= best) continue;
+                best = distance;
+                nearest = item;
+            }
+            return nearest;
         }
 
         public void Configure(Metin3EntityData data, int respawn)
@@ -178,6 +211,39 @@ namespace Metin2Dev.Gameplay
             Invoke(animationRuntime, "SetMoveAmount", 1f);
         }
 
+        void CaptureGroundOffset()
+        {
+            if (!Metin2WorldSurface.TrySample(transform.position, 89f, out Vector3 surface)) return;
+            if (renderers == null || renderers.Length == 0) renderers = GetComponentsInChildren<Renderer>(true);
+            Renderer first = null;
+            foreach (Renderer renderer in renderers)
+                if (renderer != null && !(renderer is ParticleSystemRenderer)) { first = renderer; break; }
+            if (first != null)
+            {
+                Bounds bounds = first.bounds;
+                foreach (Renderer renderer in renderers)
+                    if (renderer != null && renderer != first && !(renderer is ParticleSystemRenderer)) bounds.Encapsulate(renderer.bounds);
+                float feetCorrection = surface.y - bounds.min.y;
+                if (!float.IsNaN(feetCorrection) && !float.IsInfinity(feetCorrection))
+                    transform.position += Vector3.up * feetCorrection;
+            }
+            // Preserve the model's real root-to-foot pivot distance. Giants and stones
+            // can legitimately use a large root offset, so no guessed clamp is used.
+            groundOffset = transform.position.y - surface.y;
+            groundReady = true;
+            SnapToGround();
+        }
+
+        void SnapToGround()
+        {
+            if (!Metin2WorldSurface.TrySample(transform.position, 89f, out Vector3 surface)) return;
+            Vector3 position = transform.position;
+            position.y = surface.y + groundOffset;
+            transform.position = position;
+            lastGroundedXZ = new Vector2(position.x, position.z);
+            lastGroundedRootY = position.y;
+        }
+
         void ReturnHome()
         {
             Vector3 delta = home - transform.position;
@@ -253,6 +319,7 @@ namespace Metin2Dev.Gameplay
         {
             yield return new WaitForSeconds(Mathf.Max(1, respawnSeconds));
             transform.position = home;
+            SnapToGround();
             dead = false;
             currentHp = maxHp;
             if (legacy != null) Invoke(legacy, "Revive");

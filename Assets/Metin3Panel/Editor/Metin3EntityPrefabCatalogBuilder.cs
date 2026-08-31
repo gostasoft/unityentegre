@@ -21,7 +21,7 @@ namespace Metin3Dev.Panel.Editor
         const string ControllerRoot = GeneratedRoot + "/Controllers";
         const string ClipRoot = GeneratedRoot + "/AnimationClips";
         const string AnimationReportPath = GeneratedRoot + "/MobAnimationImportReport.txt";
-        const int BuilderVersion = 7;
+        const int BuilderVersion = 8;
         static bool buildScheduled;
         static readonly List<string> animationReport = new List<string>();
 
@@ -106,6 +106,8 @@ namespace Metin3Dev.Panel.Editor
             EnsureAssetFolder(GeneratedRoot);
             EnsureAssetFolder(ControllerRoot);
             EnsureAssetFolder(ClipRoot);
+            EnsureAssetFolder(RuntimePrefabRoot);
+            EnsureAssetFolder(GeneratedRoot + "/Materials");
             Metin3EntityPrefabCatalog catalog = AssetDatabase.LoadAssetAtPath<Metin3EntityPrefabCatalog>(AssetPath);
             if (catalog == null)
             {
@@ -153,8 +155,6 @@ namespace Metin3Dev.Panel.Editor
         {
             string prefabFolder = RuntimePrefabRoot;
             string materialFolder = GeneratedRoot + "/Materials";
-            EnsureAssetFolder(prefabFolder);
-            EnsureAssetFolder(materialFolder);
             GameObject instance = PrefabUtility.InstantiatePrefab(source) as GameObject;
             if (instance == null) instance = UnityEngine.Object.Instantiate(source);
             Texture2D texture = string.IsNullOrEmpty(texturePath) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>(ToAssetPath(texturePath));
@@ -181,10 +181,13 @@ namespace Metin3Dev.Panel.Editor
             RuntimeAnimatorController controller = CreateMotionController(key, sourceDirectory);
             if (controller != null)
             {
-                Animator animator = instance.GetComponent<Animator>() ?? instance.AddComponent<Animator>();
+                Animator animator = instance.GetComponentsInChildren<Animator>(true)
+                    .FirstOrDefault(candidate => candidate != null && candidate.runtimeAnimatorController != null)
+                    ?? instance.GetComponentInChildren<Animator>(true)
+                    ?? instance.AddComponent<Animator>();
                 animator.runtimeAnimatorController = controller;
                 animator.applyRootMotion = false;
-                animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+                animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
                 if (instance.GetComponent<MobAnimationRuntime>() == null) instance.AddComponent<MobAnimationRuntime>();
             }
             string prefabPath = $"{prefabFolder}/{key}.prefab";
@@ -360,6 +363,8 @@ namespace Metin3Dev.Panel.Editor
             for (int index = 1; index < parts.Length; index++)
             {
                 string next = current + "/" + parts[index];
+                if (!AssetDatabase.IsValidFolder(next) && Directory.Exists(Path.GetFullPath(next)))
+                    AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
                 if (!AssetDatabase.IsValidFolder(next)) AssetDatabase.CreateFolder(current, parts[index]);
                 current = next;
             }
