@@ -65,27 +65,56 @@ public sealed class MobileHUDStatusAndMinimap : MonoBehaviour
         }
 
         if (minimapRoot == null && minimapFrame != null)
-        {
             minimapRoot = CreateTopRight(transform, "MobileMinimap", 22f, 22f, 148f, 166f);
-            RectTransform background = CreateTopLeft(minimapRoot, "MapBackground", 6f, 6f, 124f, 124f);
-            Image backgroundImage = background.gameObject.AddComponent<Image>();
+
+        if (minimapRoot != null && minimapFrame != null)
+        {
+            RectTransform background = FindDeep(minimapRoot, "MapBackground") as RectTransform;
+            if (background == null)
+                background = CreateTopLeft(minimapRoot, "MapBackground", 6f, 6f, 124f, 124f);
+            Image backgroundImage = background.GetComponent<Image>();
+            if (backgroundImage == null)
+                backgroundImage = background.gameObject.AddComponent<Image>();
             backgroundImage.color = new Color(0.015f, 0.02f, 0.015f, 1f);
             backgroundImage.raycastTarget = false;
 
-            RectTransform view = CreateTopLeft(minimapRoot, "MapView", 10f, 10f, 116f, 116f);
-            minimapView = view.gameObject.AddComponent<RawImage>();
+            RectTransform view = FindDeep(minimapRoot, "MapView") as RectTransform;
+            if (view == null)
+                view = CreateTopLeft(minimapRoot, "MapView", 10f, 10f, 116f, 116f);
+            minimapView = view.GetComponent<RawImage>();
+            if (minimapView == null)
+                minimapView = view.gameObject.AddComponent<RawImage>();
+            minimapView.color = Color.white;
             minimapView.raycastTarget = false;
 
-            playerMarker = CreateTopLeft(minimapRoot, "PlayerMarker", 62f, 61f, 12f, 12f);
-            playerMarker.pivot = new Vector2(0.5f, 0.5f);
-            Image markerImage = playerMarker.gameObject.AddComponent<Image>();
+            if (playerMarker == null)
+                playerMarker = FindDeep(minimapRoot, "PlayerMarker") as RectTransform;
+            if (playerMarker == null)
+            {
+                playerMarker = CreateTopLeft(minimapRoot, "PlayerMarker", 62f, 61f, 12f, 12f);
+                playerMarker.pivot = new Vector2(0.5f, 0.5f);
+                playerMarker.localRotation = Quaternion.Euler(0f, 0f, 45f);
+            }
+            Image markerImage = playerMarker.GetComponent<Image>();
+            if (markerImage == null)
+                markerImage = playerMarker.gameObject.AddComponent<Image>();
             markerImage.color = new Color(1f, 0.82f, 0.16f, 1f);
             markerImage.raycastTarget = false;
-            playerMarker.localRotation = Quaternion.Euler(0f, 0f, 45f);
 
-            CreateRaw(minimapRoot, "OriginalMinimapFrame", minimapFrame, 0f, 0f, 136f, 137f,
-                AtlasUv(minimapFrame, new Rect(0f, 0f, 136f, 137f)));
-            mapNameText = CreateText(minimapRoot, "MapName", 0f, 139f, 136f, 18f, "HARITA", 10);
+            RectTransform frame = FindDeep(minimapRoot, "OriginalMinimapFrame") as RectTransform;
+            if (frame == null)
+                frame = CreateRaw(minimapRoot, "OriginalMinimapFrame", minimapFrame, 0f, 0f, 136f, 137f,
+                    AtlasUv(minimapFrame, new Rect(0f, 0f, 136f, 137f))).rectTransform;
+
+            mapNameText = Resolve(mapNameText, minimapRoot, "MapName");
+            if (mapNameText == null)
+                mapNameText = CreateText(minimapRoot, "MapName", 0f, 139f, 136f, 18f, "HARITA", 10);
+
+            background.SetSiblingIndex(0);
+            view.SetSiblingIndex(1);
+            playerMarker.SetSiblingIndex(2);
+            frame.SetSiblingIndex(3);
+            mapNameText.transform.SetAsLastSibling();
         }
 
         if (topStatus != null)

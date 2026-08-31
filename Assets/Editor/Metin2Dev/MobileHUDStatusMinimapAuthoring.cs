@@ -35,6 +35,10 @@ namespace Metin2Dev.Editor
             bool changed = false;
             try
             {
+                foreach (Transform candidate in root.GetComponentsInChildren<Transform>(true))
+                    if (GameObjectUtility.RemoveMonoBehavioursWithMissingScript(candidate.gameObject) > 0)
+                        changed = true;
+
                 Texture2D taskbar = LoadTexture("taskbar.tga");
                 Texture2D hpGauge = LoadTexture("hp_gauge_01.tga");
                 Texture2D spGauge = LoadTexture("sp_gauge_01.tga");
@@ -58,9 +62,9 @@ namespace Metin2Dev.Editor
                 if (minimap == null)
                 {
                     minimap = CreateTopRight(root.transform, "MobileMinimap", 22f, 22f, 148f, 166f);
-                    BuildMinimap(minimap, minimapFrame);
                     changed = true;
                 }
+                changed |= EnsureMinimapContents(minimap, minimapFrame);
 
                 MobileHUDStatusAndMinimap controller = root.GetComponent<MobileHUDStatusAndMinimap>();
                 if (controller == null)
@@ -112,28 +116,85 @@ namespace Metin2Dev.Editor
                 CreateRaw(exp, "EXPTube" + (index + 1), taskbar, 5f + index * 25f, 9f, 19f, 19f, pointUv);
         }
 
-        private static void BuildMinimap(RectTransform root, Texture2D frameTexture)
+        private static bool EnsureMinimapContents(RectTransform root, Texture2D frameTexture)
         {
-            RectTransform background = CreateTopLeft(root, "MapBackground", 6f, 6f, 124f, 124f);
-            Image backgroundImage = background.gameObject.AddComponent<Image>();
+            bool changed = false;
+            RectTransform background = FindDeep(root, "MapBackground") as RectTransform;
+            if (background == null)
+            {
+                background = CreateTopLeft(root, "MapBackground", 6f, 6f, 124f, 124f);
+                changed = true;
+            }
+            Image backgroundImage = background.GetComponent<Image>();
+            if (backgroundImage == null)
+            {
+                backgroundImage = background.gameObject.AddComponent<Image>();
+                changed = true;
+            }
             backgroundImage.color = new Color(0.015f, 0.02f, 0.015f, 1f);
             backgroundImage.raycastTarget = false;
 
-            RectTransform view = CreateTopLeft(root, "MapView", 10f, 10f, 116f, 116f);
-            RawImage viewImage = view.gameObject.AddComponent<RawImage>();
+            RectTransform view = FindDeep(root, "MapView") as RectTransform;
+            if (view == null)
+            {
+                view = CreateTopLeft(root, "MapView", 10f, 10f, 116f, 116f);
+                changed = true;
+            }
+            RawImage viewImage = view.GetComponent<RawImage>();
+            if (viewImage == null)
+            {
+                viewImage = view.gameObject.AddComponent<RawImage>();
+                changed = true;
+            }
             viewImage.color = Color.white;
             viewImage.raycastTarget = false;
 
-            RectTransform marker = CreateTopLeft(root, "PlayerMarker", 62f, 61f, 12f, 12f);
-            marker.pivot = new Vector2(0.5f, 0.5f);
-            Image markerImage = marker.gameObject.AddComponent<Image>();
+            RectTransform marker = FindDeep(root, "PlayerMarker") as RectTransform;
+            if (marker == null)
+            {
+                marker = CreateTopLeft(root, "PlayerMarker", 62f, 61f, 12f, 12f);
+                marker.pivot = new Vector2(0.5f, 0.5f);
+                marker.localRotation = Quaternion.Euler(0f, 0f, 45f);
+                changed = true;
+            }
+            Image markerImage = marker.GetComponent<Image>();
+            if (markerImage == null)
+            {
+                markerImage = marker.gameObject.AddComponent<Image>();
+                changed = true;
+            }
             markerImage.color = new Color(1f, 0.82f, 0.16f, 1f);
             markerImage.raycastTarget = false;
-            marker.localRotation = Quaternion.Euler(0f, 0f, 45f);
 
-            CreateRaw(root, "OriginalMinimapFrame", frameTexture, 0f, 0f, 136f, 137f,
-                AtlasUv(frameTexture, new Rect(0f, 0f, 136f, 137f)));
-            CreateText(root, "MapName", 0f, 139f, 136f, 18f, "HARITA", 10);
+            RectTransform frame = FindDeep(root, "OriginalMinimapFrame") as RectTransform;
+            if (frame == null)
+            {
+                frame = CreateRaw(root, "OriginalMinimapFrame", frameTexture, 0f, 0f, 136f, 137f,
+                    AtlasUv(frameTexture, new Rect(0f, 0f, 136f, 137f))).rectTransform;
+                changed = true;
+            }
+
+            RectTransform mapName = FindDeep(root, "MapName") as RectTransform;
+            if (mapName == null)
+            {
+                mapName = CreateText(root, "MapName", 0f, 139f, 136f, 18f, "HARITA", 10).rectTransform;
+                changed = true;
+            }
+
+            changed |= SetSiblingIndex(background, 0);
+            changed |= SetSiblingIndex(view, 1);
+            changed |= SetSiblingIndex(marker, 2);
+            changed |= SetSiblingIndex(frame, 3);
+            changed |= SetSiblingIndex(mapName, root.childCount - 1);
+            return changed;
+        }
+
+        private static bool SetSiblingIndex(Transform child, int index)
+        {
+            if (child == null || child.GetSiblingIndex() == index)
+                return false;
+            child.SetSiblingIndex(index);
+            return true;
         }
 
         private static Texture2D LoadTexture(string name)

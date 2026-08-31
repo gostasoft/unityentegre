@@ -15,7 +15,11 @@ namespace Metin2Dev.Editor
         private const string SourceScene = "Assets/Map/Assets/Scenes/Tapınak.unity";
         private const string OutputFolder = "Assets/Map/Assets/Resources";
         private const string OutputPrefab = OutputFolder + "/MobileHUD.prefab";
+        private const int ExportRevision = 2;
         private static bool exportInProgress;
+
+        private static string ExportRevisionKey =>
+            "Metin2Dev.MobileHUDAuthoredPrefabExporter.Revision." + Application.dataPath;
 
         static MobileHUDAuthoredPrefabExporter()
         {
@@ -84,6 +88,11 @@ namespace Metin2Dev.Editor
                 Export(true, SourceScene);
                 return;
             }
+            if (EditorPrefs.GetInt(ExportRevisionKey, 0) < ExportRevision)
+            {
+                Export(false, SourceScene);
+                return;
+            }
             if (File.Exists(SourceScene) && File.GetLastWriteTimeUtc(SourceScene) > File.GetLastWriteTimeUtc(OutputPrefab))
                 Export(false, SourceScene);
         }
@@ -144,6 +153,7 @@ namespace Metin2Dev.Editor
                     return;
                 }
                 AssetDatabase.SaveAssets();
+                EditorPrefs.SetInt(ExportRevisionKey, ExportRevision);
                 Debug.Log("[MobileHUD] Authored HUD prefab exported: " + OutputPrefab);
             }
             catch (Exception exception)
@@ -235,7 +245,7 @@ namespace Metin2Dev.Editor
                 string typeName = componentType.Name;
                 if (typeName == "MobileHUDOnly" || typeName == "MobileHUDInputBridge"
                     || typeName == "MobileHUDActionButton" || typeName == "Metin2QuickSlotView"
-                    || typeName == "Metin2QuickSlotDragSource")
+                    || typeName == "Metin2QuickSlotDragSource" || typeName == "MobileHUDStatusAndMinimap")
                     continue;
                 try
                 {
