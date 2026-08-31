@@ -30,6 +30,7 @@ namespace Metin2Dev
         static readonly HashSet<string> ImportedModelDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         static readonly Dictionary<string, string> ImportedAssets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         static readonly Dictionary<string, string> ImportedEffectPrefabs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        static readonly Dictionary<string, string> ImportedSpeedTrees = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         [MenuItem("Tools/Metin2/Build All Maps", priority = 100)]
         public static void BuildAllMaps()
@@ -47,13 +48,15 @@ namespace Metin2Dev
             try
             {
                 Folders(Output); Folders(Raw); Folders(Output + "/Maps"); Folders(Output + "/Scenes");
-                ImportedModels.Clear(); ImportedModelDirectories.Clear(); ImportedAssets.Clear(); ImportedEffectPrefabs.Clear();
+                ImportedModels.Clear(); ImportedModelDirectories.Clear(); ImportedAssets.Clear(); ImportedEffectPrefabs.Clear(); ImportedSpeedTrees.Clear();
                 List<string> all = roots.SelectMany(SafeFiles).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 int archives = all.Count(p => p.EndsWith(".eix", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".epk", StringComparison.OrdinalIgnoreCase));
                 FileIndex models = new FileIndex(all.Where(p => ModelExtensions.Contains(Path.GetExtension(p).ToLowerInvariant())), ".fbx");
                 FileIndex textures = new FileIndex(all.Where(p => ImageExtensions.Contains(Path.GetExtension(p).ToLowerInvariant())), ".png");
                 FileIndex textFiles = new FileIndex(all.Where(p => p.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)));
                 FileIndex effects = new FileIndex(all.Where(IsEffectFile), ".mse");
+                FileIndex speedTrees = new FileIndex(all.Where(p => p.EndsWith(".spt", StringComparison.OrdinalIgnoreCase)), ".spt");
+                LegacySpeedTreeBridge speedTreeBridge = LegacySpeedTreeBridge.Create(project, all, report);
                 Dictionary<string, PropertyEntry> properties = LoadProperties(all, report);
                 List<MapSource> maps = DiscoverMaps(all);
 
@@ -64,13 +67,13 @@ namespace Metin2Dev
                 for (int i = 0; i < maps.Count; i++)
                 {
                     EditorUtility.DisplayProgressBar("Metin2 - Build All Maps", $"[{i + 1}/{maps.Count}] {maps[i].Name}", i / (float)Math.Max(1, maps.Count));
-                    try { BuildMap(maps[i], properties, models, textures, textFiles, effects, report); }
+                    try { BuildMap(maps[i], properties, models, textures, textFiles, effects, speedTrees, speedTreeBridge, report); }
                     catch (Exception ex) { report.Errors.Add(maps[i].Name + ": " + ex); }
                 }
 
                 AssetDatabase.SaveAssets(); AssetDatabase.Refresh();
-                report.Save(roots, maps.Count, properties.Count, models.Count, textures.Count);
-                Debug.Log($"Metin2 import finished: {report.BuiltMaps} maps, {report.TerrainTiles} terrain tiles, {report.PlacedObjects} objects, {report.Missing.Count} missing references. Report: {Output}/ImportReport.txt");
+                report.Save(roots, maps.Count, properties.Count, models.Count, textures.Count, speedTrees.Count);
+                Debug.Log($"Metin2 import finished: {report.BuiltMaps} maps, {report.TerrainTiles} terrain tiles, {report.PlacedObjects} objects ({report.PlacedTrees} trees), {report.Missing.Count} missing references. Report: {Output}/ImportReport.txt");
             }
             finally { EditorUtility.ClearProgressBar(); }
         }
@@ -80,6 +83,61 @@ namespace Metin2Dev
         {
             TextAsset asset = AssetDatabase.LoadAssetAtPath<TextAsset>(Output + "/ImportReport.txt");
             if (asset != null) AssetDatabase.OpenAsset(asset); else Debug.LogWarning("No Metin2 import report exists yet.");
+        }
+
+        [MenuItem("Tools/Metin2/Rebuild Original Trees", priority = 102)]
+        public static void RebuildOriginalTrees()
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            string project = Directory.GetParent(Application.dataPath).FullName;
+            List<string> roots = FindRoots(project);
+            if (roots.Count == 0) { Debug.LogError("[Metin2] Extracted source roots were not found."); return; }
+            Report report = new Report();
+            string previousScene = SceneManager.GetActiveScene().path;
+            try
+            {
+                ImportedAssets.Clear(); ImportedSpeedTrees.Clear();
+                List<string> all = roots.SelectMany(SafeFiles).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                FileIndex textures = new FileIndex(all.Where(path => ImageExtensions.Contains(Path.GetExtension(path).ToLowerInvariant())), ".png");
+                FileIndex speedTrees = new FileIndex(all.Where(path => path.EndsWith(".spt", StringComparison.OrdinalIgnoreCase)), ".spt");
+                LegacySpeedTreeBridge bridge = LegacySpeedTreeBridge.Create(project, all, report);
+                Dictionary<string, PropertyEntry> properties = LoadProperties(all, report);
+                List<MapSource> maps = DiscoverMaps(all);
+                int updatedScenes = 0;
+                for (int index = 0; index < maps.Count; index++)
+                {
+                    MapSource map = maps[index];
+                    string scenePath = Output + "/Scenes/" + map.Name + ".unity";
+                    if (!File.Exists(Path.Combine(project, scenePath))) continue;
+                    EditorUtility.DisplayProgressBar("Metin2 - Original Trees", $"[{index + 1}/{maps.Count}] {map.Name}", index / (float)Math.Max(1, maps.Count));
+                    Scene scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                    GameObject root = scene.GetRootGameObjects().FirstOrDefault(item => item.name.Equals(map.Name, StringComparison.OrdinalIgnoreCase));
+                    if (root == null) { report.Warnings.Add(map.Name + ": scene root was not found."); continue; }
+                    GameObject treeRoot = Child(root, "Trees");
+                    for (int child = treeRoot.transform.childCount - 1; child >= 0; child--)
+                        UnityEngine.Object.DestroyImmediate(treeRoot.transform.GetChild(child).gameObject);
+                    foreach (string area in SafeFiles(map.Root).Where(path => Path.GetFileName(path).StartsWith("AreaData", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        foreach (AreaObject item in ParseArea(area))
+                        {
+                            if (!properties.TryGetValue(NormalizeId(item.Crc), out PropertyEntry property) || string.IsNullOrEmpty(property.AssetReference)) continue;
+                            if (!Path.GetExtension(property.AssetReference).Equals(".spt", StringComparison.OrdinalIgnoreCase)) continue;
+                            PlaceSpeedTree(item, property, speedTrees, textures, bridge, treeRoot, report);
+                        }
+                    }
+                    EditorSceneManager.MarkSceneDirty(scene);
+                    EditorSceneManager.SaveScene(scene);
+                    updatedScenes++;
+                }
+                AssetDatabase.SaveAssets(); AssetDatabase.Refresh();
+                Debug.Log($"[Metin2] Original trees rebuilt: {report.PlacedTrees} placements, {report.SpeedTreeModels.Count} source tree types, {updatedScenes} scenes. Missing: {report.Missing.Count}, unsupported: {report.Unsupported.Count}.");
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+                if (!string.IsNullOrEmpty(previousScene) && File.Exists(Path.Combine(project, previousScene)))
+                    EditorSceneManager.OpenScene(previousScene, OpenSceneMode.Single);
+            }
         }
 
         public static Dictionary<string, GameObject> BuildGameplayEffectPrefabs(IEnumerable<string> references, string prefabFolder)
@@ -319,7 +377,7 @@ namespace Metin2Dev
             return extension.Equals(".mse", StringComparison.OrdinalIgnoreCase) || extension.Equals(".mde", StringComparison.OrdinalIgnoreCase);
         }
 
-        static void BuildMap(MapSource map, Dictionary<string, PropertyEntry> properties, FileIndex models, FileIndex textures, FileIndex textFiles, FileIndex effects, Report report)
+        static void BuildMap(MapSource map, Dictionary<string, PropertyEntry> properties, FileIndex models, FileIndex textures, FileIndex textFiles, FileIndex effects, FileIndex speedTrees, LegacySpeedTreeBridge speedTreeBridge, Report report)
         {
             Folders(Output + "/Maps/" + map.Name);
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -334,7 +392,7 @@ namespace Metin2Dev
             foreach (string height in heightFiles)
                 BuildTerrainTile(map, settings, height, layers, terrainRoot, water, report);
             foreach (string area in SafeFiles(map.Root).Where(p => Path.GetFileName(p).StartsWith("AreaData", StringComparison.OrdinalIgnoreCase)))
-                PlaceArea(area, properties, models, textures, effects, buildings, trees, rocks, props, effectRoot, report);
+                PlaceArea(area, properties, models, textures, effects, speedTrees, speedTreeBridge, buildings, trees, rocks, props, effectRoot, report);
 
             if (heightFiles.Count > 0 && report.TerrainTiles == terrainBefore)
                 report.Warnings.Add($"{map.Name}: {heightFiles.Count} height.raw file(s) exist, but none contains a supported 16-bit square height grid. Empty or still-encrypted source data was not replaced with guessed terrain.");
@@ -596,8 +654,13 @@ namespace Metin2Dev
             mesh.SetVertices(vertices); mesh.SetTriangles(triangles, 0); mesh.SetUVs(0, uv); mesh.RecalculateNormals(); mesh.RecalculateBounds();
             string meshPath = Output + "/Maps/" + map.Name + "/" + mesh.name + ".asset";
             if (AssetDatabase.LoadAssetAtPath<Mesh>(meshPath) != null) AssetDatabase.DeleteAsset(meshPath); AssetDatabase.CreateAsset(mesh, meshPath);
-            GameObject go = new GameObject(mesh.name, typeof(MeshFilter), typeof(MeshRenderer)); go.transform.SetParent(parent.transform, false); go.transform.localPosition = new Vector3(tile.x * tileSize, 0f, tile.y * tileSize);
-            go.GetComponent<MeshFilter>().sharedMesh = mesh; go.GetComponent<MeshRenderer>().sharedMaterial = GetWaterMaterial(); report.WaterTiles++;
+            GameObject go = new GameObject(mesh.name, typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider)); go.transform.SetParent(parent.transform, false); go.transform.localPosition = new Vector3(tile.x * tileSize, 0f, tile.y * tileSize);
+            go.GetComponent<MeshFilter>().sharedMesh = mesh;
+            go.GetComponent<MeshRenderer>().sharedMaterial = GetWaterMaterial();
+            MeshCollider waterCollider = go.GetComponent<MeshCollider>();
+            waterCollider.sharedMesh = mesh;
+            waterCollider.convex = false;
+            report.WaterTiles++;
         }
 
         static bool WaterIsAboveTerrain(int waterHeight, int x, int z, byte[] heightRaw, int sourceSize)
@@ -631,7 +694,7 @@ namespace Metin2Dev
             return material;
         }
 
-        static void PlaceArea(string path, Dictionary<string, PropertyEntry> properties, FileIndex models, FileIndex textures, FileIndex effects, GameObject buildings, GameObject trees, GameObject rocks, GameObject props, GameObject effectRoot, Report report)
+        static void PlaceArea(string path, Dictionary<string, PropertyEntry> properties, FileIndex models, FileIndex textures, FileIndex effects, FileIndex speedTrees, LegacySpeedTreeBridge speedTreeBridge, GameObject buildings, GameObject trees, GameObject rocks, GameObject props, GameObject effectRoot, Report report)
         {
             foreach (AreaObject item in ParseArea(path))
             {
@@ -640,6 +703,11 @@ namespace Metin2Dev
                 if (property.Type.Equals("Effect", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(property.AssetReference).Equals(".mse", StringComparison.OrdinalIgnoreCase))
                 {
                     PlaceEffect(item, property, effects, textures, effectRoot, report);
+                    continue;
+                }
+                if (Path.GetExtension(property.AssetReference).Equals(".spt", StringComparison.OrdinalIgnoreCase))
+                {
+                    PlaceSpeedTree(item, property, speedTrees, textures, speedTreeBridge, trees, report);
                     continue;
                 }
                 bool wallOrFence = IsWallOrFence(property);
@@ -689,6 +757,150 @@ namespace Metin2Dev
                 report.MeshColliders += AddColliders(instance);
                 report.PlacedObjects++;
             }
+        }
+
+        static void PlaceSpeedTree(AreaObject item, PropertyEntry property, FileIndex speedTrees, FileIndex textures, LegacySpeedTreeBridge bridge, GameObject trees, Report report)
+        {
+            string source = speedTrees.Resolve(property.AssetReference);
+            if (source == null)
+            {
+                report.Missing.Add("SpeedTree | " + property.AssetReference + " | CRC " + item.Crc);
+                return;
+            }
+            GameObject prefab = BuildSpeedTreePrefab(source, textures, bridge, report);
+            if (prefab == null) return;
+            GameObject instance = PrefabUtility.InstantiatePrefab(prefab) as GameObject;
+            if (instance == null) return;
+            instance.name = Path.GetFileNameWithoutExtension(source);
+            instance.transform.SetParent(trees.transform, false);
+            // SpeedTree records use the same exact AreaData coordinate system as every
+            // other map object. No terrain projection or random scattering is applied.
+            instance.transform.localPosition = new Vector3(item.Position.x / MetinUnitsPerUnityUnit, (item.Position.z + item.HeightBias) / MetinUnitsPerUnityUnit, -item.Position.y / MetinUnitsPerUnityUnit);
+            instance.transform.localRotation = Metin2Rotation(item.Rotation);
+            instance.transform.localScale = Vector3.one;
+            report.PlacedTrees++;
+            report.PlacedObjects++;
+            report.SpeedTreeModels.Add(property.AssetReference.Replace('\\', '/'));
+        }
+
+        static GameObject BuildSpeedTreePrefab(string source, FileIndex textures, LegacySpeedTreeBridge bridge, Report report)
+        {
+            if (ImportedSpeedTrees.TryGetValue(source, out string existingPath))
+                return AssetDatabase.LoadAssetAtPath<GameObject>(existingPath);
+            TreeBillboardData data = null;
+            string error = "SpeedTree bridge is unavailable.";
+            if (bridge == null || !bridge.TryExtract(source, out data, out error))
+            {
+                report.Unsupported.Add("SpeedTree billboard | " + source + " | " + error);
+                return null;
+            }
+
+            string compositeSource = textures.ResolvePreferredImage(data.CompositeTexture);
+            if (compositeSource == null)
+            {
+                report.Missing.Add("SpeedTree composite texture | " + data.CompositeTexture + " | " + source);
+                return null;
+            }
+
+            Folders(Output + "/Trees/Meshes");
+            Folders(Output + "/Trees/Materials");
+            Folders(Output + "/Trees/Prefabs");
+            string texturePath = CopyAsset(compositeSource, Raw + "/Trees/Textures");
+            ConfigureTreeTexture(texturePath);
+            Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
+            if (texture == null)
+            {
+                report.Missing.Add("SpeedTree texture import | " + compositeSource);
+                return null;
+            }
+
+            string key = Clean(Path.GetFileNameWithoutExtension(source)) + "_" + Hash(source);
+            string meshPath = Output + "/Trees/Meshes/" + key + ".asset";
+            string materialPath = Output + "/Trees/Materials/" + key + ".mat";
+            string prefabPath = Output + "/Trees/Prefabs/" + key + ".prefab";
+            if (AssetDatabase.LoadAssetAtPath<Mesh>(meshPath) != null) AssetDatabase.DeleteAsset(meshPath);
+            Mesh mesh = CreateCrossBillboardMesh(data, key);
+            AssetDatabase.CreateAsset(mesh, meshPath);
+
+            Material material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            if (material == null)
+            {
+                material = new Material(shader) { name = key + "_Leaves" };
+                AssetDatabase.CreateAsset(material, materialPath);
+            }
+            else material.shader = shader;
+            material.mainTexture = texture;
+            material.color = Color.white;
+            if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", texture);
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", Color.white);
+            if (material.HasProperty("_AlphaClip")) material.SetFloat("_AlphaClip", 1f);
+            if (material.HasProperty("_Cutoff")) material.SetFloat("_Cutoff", 0.28f);
+            if (material.HasProperty("_Cull")) material.SetFloat("_Cull", 0f);
+            material.EnableKeyword("_ALPHATEST_ON");
+            material.doubleSidedGI = true;
+            material.renderQueue = (int)RenderQueue.AlphaTest;
+            EditorUtility.SetDirty(material);
+
+            GameObject prototype = new GameObject(Path.GetFileNameWithoutExtension(source));
+            prototype.AddComponent<MeshFilter>().sharedMesh = mesh;
+            MeshRenderer renderer = prototype.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = ShadowCastingMode.TwoSided;
+            renderer.receiveShadows = true;
+            CapsuleCollider trunk = prototype.AddComponent<CapsuleCollider>();
+            float treeHeight = Mathf.Max(0.5f, (data.Bounds[5] - data.Bounds[2]) / MetinUnitsPerUnityUnit);
+            float horizontal = Mathf.Min(Mathf.Abs(data.Bounds[3] - data.Bounds[0]), Mathf.Abs(data.Bounds[4] - data.Bounds[1])) / MetinUnitsPerUnityUnit;
+            trunk.direction = 1;
+            trunk.height = Mathf.Max(0.5f, treeHeight * 0.48f);
+            trunk.radius = Mathf.Clamp(horizontal * 0.045f, 0.08f, 0.75f);
+            trunk.center = new Vector3(0f, trunk.height * 0.5f, 0f);
+            GameObjectUtility.SetStaticEditorFlags(prototype, StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccludeeStatic | StaticEditorFlags.ReflectionProbeStatic);
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null) AssetDatabase.DeleteAsset(prefabPath);
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(prototype, prefabPath);
+            UnityEngine.Object.DestroyImmediate(prototype);
+            ImportedSpeedTrees[source] = prefabPath;
+            return prefab;
+        }
+
+        static Mesh CreateCrossBillboardMesh(TreeBillboardData data, string name)
+        {
+            Vector3[] vertices = new Vector3[8];
+            Vector2[] uv = new Vector2[8];
+            for (int index = 0; index < 4; index++)
+            {
+                float sourceX = data.Coordinates[index * 3] / MetinUnitsPerUnityUnit;
+                float sourceY = data.Coordinates[index * 3 + 1] / MetinUnitsPerUnityUnit;
+                float sourceZ = data.Coordinates[index * 3 + 2] / MetinUnitsPerUnityUnit;
+                // SpeedTree is Z-up. Unity is Y-up; two perpendicular exact-size
+                // billboards preserve the original atlas silhouette from every angle.
+                vertices[index] = new Vector3(sourceX, sourceZ, sourceY);
+                vertices[index + 4] = new Vector3(-sourceY, sourceZ, sourceX);
+                Vector2 atlasUv = new Vector2(data.Uv[index * 2], data.Uv[index * 2 + 1]);
+                uv[index] = atlasUv;
+                uv[index + 4] = atlasUv;
+            }
+            Mesh mesh = new Mesh { name = name };
+            mesh.vertices = vertices;
+            mesh.uv = uv;
+            mesh.triangles = new[] { 0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7 };
+            mesh.RecalculateNormals();
+            mesh.RecalculateTangents();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        static void ConfigureTreeTexture(string assetPath)
+        {
+            TextureImporter importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+            if (importer == null) return;
+            bool dirty = !importer.alphaIsTransparency || importer.wrapMode != TextureWrapMode.Clamp || !importer.mipmapEnabled;
+            importer.alphaIsTransparency = true;
+            importer.wrapMode = TextureWrapMode.Clamp;
+            importer.filterMode = FilterMode.Bilinear;
+            importer.mipmapEnabled = true;
+            importer.textureCompression = TextureImporterCompression.CompressedHQ;
+            if (dirty) importer.SaveAndReimport();
         }
 
         static void RebuildMapEffects(MapSource map, GameObject root, Dictionary<string, PropertyEntry> properties, FileIndex effects, FileIndex textures, Report report)
@@ -1845,6 +2057,161 @@ namespace Metin2Dev
             for (int i = 1; i < parts.Length; i++) { string next = current + "/" + parts[i]; if (!AssetDatabase.IsValidFolder(next)) AssetDatabase.CreateFolder(current, parts[i]); current = next; }
         }
 
+        sealed class TreeBillboardData
+        {
+            public float[] Bounds;
+            public float[] Coordinates;
+            public float[] Uv;
+            public string BranchTexture;
+            public string CompositeTexture;
+        }
+
+        /// <summary>
+        /// Metin2's trees are legacy SpeedTree 4 SPT files, not missing FBX files.
+        /// Unity 6 cannot import that format. This bridge invokes a tiny 32-bit helper
+        /// against the SpeedTreeRT.dll shipped with the source data and extracts the
+        /// original per-tree bounds, billboard vertices and composite-atlas UVs.
+        /// </summary>
+        sealed class LegacySpeedTreeBridge
+        {
+            readonly string executable;
+            readonly string speedTreeDll;
+            readonly Dictionary<string, TreeBillboardData> cache = new Dictionary<string, TreeBillboardData>(StringComparer.OrdinalIgnoreCase);
+
+            LegacySpeedTreeBridge(string executablePath, string dllPath)
+            {
+                executable = executablePath;
+                speedTreeDll = dllPath;
+            }
+
+            public static LegacySpeedTreeBridge Create(string project, List<string> all, Report report)
+            {
+                string directDll = Path.Combine(project, "Metin2,5", "SpeedTreeRT.dll");
+                string dll = File.Exists(directDll) ? directDll : all.Where(path => Path.GetFileName(path).Equals("SpeedTreeRT.dll", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(path => { try { return new FileInfo(path).Length; } catch { return 0L; } }).FirstOrDefault();
+                if (dll == null)
+                {
+                    report.Warnings.Add("SpeedTreeRT.dll was not found. Original .spt trees cannot be decoded.");
+                    return null;
+                }
+                string source = Path.Combine(project, "Tools", "SpeedTree", "LegacySpeedTreeExtractor.cs");
+                string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                string compiler = Path.Combine(windows, "Microsoft.NET", "Framework", "v4.0.30319", "csc.exe");
+                if (!File.Exists(source) || !File.Exists(compiler))
+                {
+                    report.Warnings.Add("Legacy SpeedTree helper source/compiler is unavailable: " + source);
+                    return null;
+                }
+                string tools = Path.Combine(project, "Library", "Metin2Tools");
+                Directory.CreateDirectory(tools);
+                string executable = Path.Combine(tools, "LegacySpeedTreeExtractor.exe");
+                if (!File.Exists(executable) || File.GetLastWriteTimeUtc(source) > File.GetLastWriteTimeUtc(executable))
+                {
+                    System.Diagnostics.ProcessStartInfo compile = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = compiler,
+                        Arguments = "/nologo /target:exe /platform:x86 /optimize+ /out:" + Quote(executable) + " " + Quote(source),
+                        WorkingDirectory = project,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+                    using (System.Diagnostics.Process process = System.Diagnostics.Process.Start(compile))
+                    {
+                        if (process == null || !process.WaitForExit(30000))
+                        {
+                            if (process != null) process.Kill();
+                            report.Warnings.Add("Legacy SpeedTree helper compilation timed out.");
+                            return null;
+                        }
+                        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+                        if (process.ExitCode != 0 || !File.Exists(executable))
+                        {
+                            report.Warnings.Add("Legacy SpeedTree helper compilation failed: " + output.Trim());
+                            return null;
+                        }
+                    }
+                }
+                return new LegacySpeedTreeBridge(executable, dll);
+            }
+
+            public bool TryExtract(string sptPath, out TreeBillboardData data, out string error)
+            {
+                if (cache.TryGetValue(sptPath, out data)) { error = null; return true; }
+                data = null;
+                error = null;
+                try
+                {
+                    System.Diagnostics.ProcessStartInfo start = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = executable,
+                        Arguments = Quote(speedTreeDll) + " " + Quote(sptPath),
+                        WorkingDirectory = Path.GetDirectoryName(speedTreeDll),
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+                    using (System.Diagnostics.Process process = System.Diagnostics.Process.Start(start))
+                    {
+                        if (process == null) { error = "Helper did not start."; return false; }
+                        if (!process.WaitForExit(30000))
+                        {
+                            process.Kill();
+                            error = "Helper timed out.";
+                            return false;
+                        }
+                        string output = process.StandardOutput.ReadToEnd().Trim();
+                        string failure = process.StandardError.ReadToEnd().Trim();
+                        string line = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(value => value.StartsWith("OK|", StringComparison.Ordinal));
+                        if (process.ExitCode != 0 || line == null)
+                        {
+                            error = failure.Length > 0 ? failure : output;
+                            return false;
+                        }
+                        string[] fields = line.Split('|');
+                        if (fields.Length < 6) { error = "Incomplete helper response."; return false; }
+                        float[] bounds = ParseFloatArray(fields[1], 6);
+                        float[] coordinates = ParseFloatArray(fields[2], 12);
+                        float[] uv = ParseFloatArray(fields[3], 8);
+                        if (bounds == null || coordinates == null || uv == null)
+                        {
+                            error = "Invalid geometry data.";
+                            return false;
+                        }
+                        data = new TreeBillboardData
+                        {
+                            Bounds = bounds,
+                            Coordinates = coordinates,
+                            Uv = uv,
+                            BranchTexture = fields[4],
+                            CompositeTexture = fields[5]
+                        };
+                        cache[sptPath] = data;
+                        return true;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    error = exception.Message;
+                    return false;
+                }
+            }
+
+            static float[] ParseFloatArray(string text, int count)
+            {
+                string[] values = text.Split(',');
+                if (values.Length != count) return null;
+                float[] result = new float[count];
+                for (int index = 0; index < count; index++)
+                    if (!float.TryParse(values[index], NumberStyles.Float, CultureInfo.InvariantCulture, out result[index])) return null;
+                return result;
+            }
+
+            static string Quote(string value) { return "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\""; }
+        }
+
         sealed class FileIndex
         {
             readonly Dictionary<string, List<string>> files = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase); readonly string preferredExtension;
@@ -1946,14 +2313,16 @@ namespace Metin2Dev
         sealed class AreaObject { public string Crc; public Vector3 Position; public Vector3 Rotation; public float HeightBias; }
         sealed class Report
         {
-            public int BuiltMaps, TerrainTiles, WaterTiles, PlacedObjects, PlacedEffects, MeshColliders, ScaledBuildings, ScaledWalls, SourceScaleBridges, WallFencePlacements;
+            public int BuiltMaps, TerrainTiles, WaterTiles, PlacedObjects, PlacedTrees, PlacedEffects, MeshColliders, ScaledBuildings, ScaledWalls, SourceScaleBridges, WallFencePlacements;
             public readonly HashSet<string> WallFenceModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            public readonly HashSet<string> SpeedTreeModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             public readonly HashSet<string> Missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase); public readonly HashSet<string> Unsupported = new HashSet<string>(StringComparer.OrdinalIgnoreCase); public readonly List<string> Warnings = new List<string>(); public readonly List<string> Errors = new List<string>();
-            public void Save(IEnumerable<string> roots, int maps, int properties, int models, int textures)
+            public void Save(IEnumerable<string> roots, int maps, int properties, int models, int textures, int speedTrees)
             {
                 StringBuilder text = new StringBuilder("Metin2 Map Import Report\n" + DateTime.Now.ToString("u") + "\n\nSources:\n"); foreach (string root in roots) text.AppendLine("- " + root);
-                text.AppendLine($"\nMaps found: {maps}\nMaps built: {BuiltMaps}\nTerrain tiles: {TerrainTiles}\nWater tiles: {WaterTiles}\nObjects placed: {PlacedObjects}\nBuilding models scaled to {BuildingModelScale:0.0}: {ScaledBuildings}\nWall models scaled in thickness/height only: {ScaledWalls}\nBridge models kept at source scale 1.0: {SourceScaleBridges}\nWall/fence placements: {WallFencePlacements}\nDistinct wall/fence source models: {WallFenceModels.Count}\nEffects placed: {PlacedEffects}\nMesh colliders added: {MeshColliders}\nProperties indexed: {properties}\nModels indexed: {models}\nTextures indexed: {textures}\nMissing references: {Missing.Count}\nUnsupported source features: {Unsupported.Count}\n");
+                text.AppendLine($"\nMaps found: {maps}\nMaps built: {BuiltMaps}\nTerrain tiles: {TerrainTiles}\nWater tiles: {WaterTiles}\nObjects placed: {PlacedObjects}\nOriginal trees placed: {PlacedTrees}\nDistinct SpeedTree models placed: {SpeedTreeModels.Count}\nSpeedTree sources indexed: {speedTrees}\nBuilding models scaled to {BuildingModelScale:0.0}: {ScaledBuildings}\nWall models scaled in thickness/height only: {ScaledWalls}\nBridge models kept at source scale 1.0: {SourceScaleBridges}\nWall/fence placements: {WallFencePlacements}\nDistinct wall/fence source models: {WallFenceModels.Count}\nEffects placed: {PlacedEffects}\nMesh colliders added: {MeshColliders}\nProperties indexed: {properties}\nModels indexed: {models}\nTextures indexed: {textures}\nMissing references: {Missing.Count}\nUnsupported source features: {Unsupported.Count}\n");
                 text.AppendLine("Wall/fence source models (exact-name matching):"); foreach (string item in WallFenceModels.OrderBy(x => x)) text.AppendLine("- " + item);
+                text.AppendLine("\nSpeedTree source models:"); foreach (string item in SpeedTreeModels.OrderBy(x => x)) text.AppendLine("- " + item);
                 text.AppendLine("Missing references:"); foreach (string item in Missing.OrderBy(x => x)) text.AppendLine("- " + item);
                 text.AppendLine("\nUnsupported source features:"); foreach (string item in Unsupported.OrderBy(x => x)) text.AppendLine("- " + item);
                 text.AppendLine("\nWarnings:"); foreach (string item in Warnings) text.AppendLine("- " + item); text.AppendLine("\nErrors:"); foreach (string item in Errors) text.AppendLine("- " + item);

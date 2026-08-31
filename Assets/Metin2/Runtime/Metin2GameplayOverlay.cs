@@ -69,7 +69,7 @@ namespace Metin2Dev.Gameplay
         void Update()
         {
             HandleKeys();
-            if (selectedTarget == null || selectedTarget.IsDead || selectedTarget.UsesLegacyTargetUi) targetBoard.gameObject.SetActive(false);
+            if (selectedTarget == null || selectedTarget.IsDead) targetBoard.gameObject.SetActive(false);
             else
             {
                 targetBoard.gameObject.SetActive(true);
@@ -314,7 +314,7 @@ namespace Metin2Dev.Gameplay
         void ClaimFirstCompleted() { Metin2QuestState quest = Metin2QuestService.Quests.FirstOrDefault(item => item.completed && !item.rewarded); if (quest != null) Metin2QuestService.Claim(quest.id); }
         public void ToggleMessenger() { messengerWindow.gameObject.SetActive(!messengerWindow.gameObject.activeSelf); if (messengerWindow.gameObject.activeSelf) messengerWindow.SetAsLastSibling(); }
         public void ToggleQuests() { questWindow.gameObject.SetActive(!questWindow.gameObject.activeSelf); if (questWindow.gameObject.activeSelf) questWindow.SetAsLastSibling(); }
-        void OnTargetChanged(Metin2MobCombatant target) { selectedTarget = target; targetBoard.gameObject.SetActive(target != null && !target.IsDead && !target.UsesLegacyTargetUi); }
+        void OnTargetChanged(Metin2MobCombatant target) { selectedTarget = target; targetBoard.gameObject.SetActive(target != null && !target.IsDead); }
 
         RectTransform Panel(Transform parent, string name, Vector2 anchor, Vector2 pivot, Vector2 position, Vector2 size)
         {

@@ -13,6 +13,7 @@ namespace Metin3Dev.Panel
             public GameObject prefab;
         }
 
+        public int builderVersion;
         public Entry[] entries = Array.Empty<Entry>();
 
         public GameObject Resolve(string folder)

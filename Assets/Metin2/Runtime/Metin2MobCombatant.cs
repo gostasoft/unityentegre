@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 using Metin3Dev.Panel;
@@ -9,6 +10,7 @@ namespace Metin2Dev.Gameplay
     public sealed class Metin2MobCombatant : MonoBehaviour, IMetin2Damageable
     {
         public static event System.Action<Metin2MobCombatant> SelectedChanged;
+        static readonly HashSet<Metin2MobCombatant> Active = new HashSet<Metin2MobCombatant>();
 
         [SerializeField] int vnum;
         [SerializeField] string displayName = "Mob";
@@ -33,9 +35,13 @@ namespace Metin2Dev.Gameplay
         Collider[] colliders;
         Renderer[] renderers;
         Vector3 home;
+        float groundOffset;
         float nextAttackAt;
         bool dead;
         bool configured;
+        bool groundReady;
+        Vector2 lastGroundedXZ;
+        float lastGroundedRootY;
 
         public int Vnum => vnum;
         public string DisplayName => displayName;
@@ -49,16 +55,46 @@ namespace Metin2Dev.Gameplay
 
         void Awake()
         {
-            home = transform.position;
             animationRuntime = GetComponent("MobAnimationRuntime");
             colliders = GetComponentsInChildren<Collider>(true);
             renderers = GetComponentsInChildren<Renderer>(true);
         }
 
+        void OnEnable() { Active.Add(this); }
+        void OnDisable() { Active.Remove(this); }
+
         void Start()
         {
             if (!configured) ConfigureFromComponents();
             EnsureCollider();
+            CaptureGroundOffset();
+            home = transform.position;
+        }
+
+        void LateUpdate()
+        {
+            if (!groundReady || IsDead) return;
+            Vector2 currentXZ = new Vector2(transform.position.x, transform.position.z);
+            if ((currentXZ - lastGroundedXZ).sqrMagnitude < 0.000001f && Mathf.Abs(transform.position.y - lastGroundedRootY) < 0.001f) return;
+            SnapToGround();
+        }
+
+        public static Metin2MobCombatant FindNearestAttackable(Vector3 origin, float maximumDistance)
+        {
+            Metin2MobCombatant nearest = null;
+            float best = maximumDistance * maximumDistance;
+            Active.RemoveWhere(item => item == null);
+            foreach (Metin2MobCombatant item in Active)
+            {
+                if (item == null || !item.isActiveAndEnabled || !item.IsAttackable) continue;
+                Vector3 delta = item.transform.position - origin;
+                delta.y = 0f;
+                float distance = delta.sqrMagnitude;
+                if (distance >= best) continue;
+                best = distance;
+                nearest = item;
+            }
+            return nearest;
         }
 
         public void Configure(Metin3EntityData data, int respawn)
@@ -164,9 +200,48 @@ namespace Metin2Dev.Gameplay
         {
             if (direction.sqrMagnitude < 0.001f) return;
             transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(direction), 360f * Time.deltaTime);
-            transform.position += direction * moveSpeed * Time.deltaTime;
+            Vector3 candidate = transform.position + direction * moveSpeed * Time.deltaTime;
+            if (!Metin2WorldSurface.TrySample(candidate, 32f, out Vector3 grounded))
+            {
+                Invoke(animationRuntime, "SetMoveAmount", 0f);
+                return;
+            }
+            grounded.y += groundOffset;
+            transform.position = grounded;
             Invoke(animationRuntime, "SetMoveAmount", 1f);
-            GroundToTerrain();
+        }
+
+        void CaptureGroundOffset()
+        {
+            if (!Metin2WorldSurface.TrySample(transform.position, 89f, out Vector3 surface)) return;
+            if (renderers == null || renderers.Length == 0) renderers = GetComponentsInChildren<Renderer>(true);
+            Renderer first = null;
+            foreach (Renderer renderer in renderers)
+                if (renderer != null && !(renderer is ParticleSystemRenderer)) { first = renderer; break; }
+            if (first != null)
+            {
+                Bounds bounds = first.bounds;
+                foreach (Renderer renderer in renderers)
+                    if (renderer != null && renderer != first && !(renderer is ParticleSystemRenderer)) bounds.Encapsulate(renderer.bounds);
+                float feetCorrection = surface.y - bounds.min.y;
+                if (!float.IsNaN(feetCorrection) && !float.IsInfinity(feetCorrection))
+                    transform.position += Vector3.up * feetCorrection;
+            }
+            // Preserve the model's real root-to-foot pivot distance. Giants and stones
+            // can legitimately use a large root offset, so no guessed clamp is used.
+            groundOffset = transform.position.y - surface.y;
+            groundReady = true;
+            SnapToGround();
+        }
+
+        void SnapToGround()
+        {
+            if (!Metin2WorldSurface.TrySample(transform.position, 89f, out Vector3 surface)) return;
+            Vector3 position = transform.position;
+            position.y = surface.y + groundOffset;
+            transform.position = position;
+            lastGroundedXZ = new Vector2(position.x, position.z);
+            lastGroundedRootY = position.y;
         }
 
         void ReturnHome()
@@ -175,21 +250,6 @@ namespace Metin2Dev.Gameplay
             delta.y = 0f;
             if (delta.sqrMagnitude > 0.1f) Move(delta.normalized);
             else Invoke(animationRuntime, "SetMoveAmount", 0f);
-        }
-
-        void GroundToTerrain()
-        {
-            Vector3 origin = transform.position + Vector3.up * 8f;
-            RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.down, 30f, ~0, QueryTriggerInteraction.Ignore);
-            System.Array.Sort(hits, (left, right) => left.distance.CompareTo(right.distance));
-            foreach (RaycastHit hit in hits)
-            {
-                if (hit.transform == transform || hit.transform.IsChildOf(transform)) continue;
-                Vector3 point = transform.position;
-                point.y = hit.point.y;
-                transform.position = point;
-                return;
-            }
         }
 
         IEnumerator DealDamageAfterDelay(Metin2PlayerState victim, float delay)
@@ -259,6 +319,7 @@ namespace Metin2Dev.Gameplay
         {
             yield return new WaitForSeconds(Mathf.Max(1, respawnSeconds));
             transform.position = home;
+            SnapToGround();
             dead = false;
             currentHp = maxHp;
             if (legacy != null) Invoke(legacy, "Revive");

@@ -166,7 +166,9 @@ for (const match of groupSource.matchAll(/Group\s+(?:"([^"]+)"|([^\r\n{]+))\s*\{
   const members = [];
   for (const member of body.matchAll(/^\s*(?:Leader|\d+)\s+(?:"[^"]+"|\S+)\s+(\d+)\s*$/gm)) {
     const memberVnum = Number(member[1]);
-    if (!members.includes(memberVnum)) members.push(memberVnum);
+    // group.txt stores one row per actual spawned member. Repeated VNUMs are
+    // intentional (Leader 101 + slot 1/2 101 means three dogs), not duplicates.
+    members.push(memberVnum);
   }
   const leaderVnum = number(body.match(/^\s*Leader\s+(?:"[^"]+"|\S+)\s+(\d+)\s*$/m)?.[1], members[0] ?? 0);
   const leaderName = localizedMobName.get(leaderVnum) ?? `VNUM ${leaderVnum}`;
